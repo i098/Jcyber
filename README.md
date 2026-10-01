@@ -40,10 +40,11 @@ evidence is normalized into the engagement graph.
 | TencentDB | Long-term memory - cross-engagement recall and learning |
 | Caido | Traffic substrate - proxy, request logging, passive plugins |
 
-## MCP tools (54 total)
+## MCP tools (57 total)
 
 - **42 HexStrike scanning tools** - `nmap_scan`, `nuclei_scan`, `sqlmap_scan`, `ffuf_scan`, `httpx_probe`, etc. Each scope-gated.
-- **Graph tools (4)** - `create_hypothesis`, `promote_finding`, `score_finding`, `retire_hypothesis`
+- **Verification tool (1)** - `confirm_difference` - 3-gate confirmation: baseline vs attack request, mechanical response diff (status, body, timing). Absorbed from CyberStrike.
+- **Graph tools (6)** - `create_hypothesis`, `promote_finding` (endpoint-aware duplicate triage), `score_finding`, `retire_hypothesis`, `create_attack_chain`, `get_attack_chains`
 - **Engagement tools (4)** - `intake_target`, `get_state`, `render_findings_report`, `get_decision_trace`
 - **Memory tools (2)** - `recall_lessons`, `commit_learnings`
 - **Jev classifiers (2)** - `suggest_severity`, `check_duplicate`
@@ -142,7 +143,7 @@ python -m jcyber trace <dir>        # render decision trace
 
 ```
 jcyber/
-  mcp_server.py        MCP server with all 54 tools
+  mcp_server.py        MCP server with all 57 tools
   SKILL.md             Agent methodology (the pentesting ladder)
   scope.py             Deterministic scope gate
   normalize.py         Evidence normalization (sha256, summary)

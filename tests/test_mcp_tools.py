@@ -5,6 +5,7 @@ so we test business logic and annotations without needing live backends."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -15,6 +16,7 @@ from jcyber.mcp_server import (
     _state,
     check_duplicate,
     commit_learnings,
+    confirm_difference,
     create_attack_chain,
     create_hypothesis,
     get_attack_chains,
@@ -29,6 +31,7 @@ from jcyber.mcp_server import (
     score_finding,
     suggest_severity,
 )
+from jcyber.types import Scope, ScopeItem
 from tests.fakes import FakeGraph, FakeHands, FakeMemory
 
 # ---------------------------------------------------------------------------
@@ -327,3 +330,136 @@ def test_hexstrike_tool_registered_with_annotations(tool_name: str) -> None:
     assert isinstance(ann.destructive_hint, bool)
     assert isinstance(ann.idempotent_hint, bool)
     assert isinstance(ann.open_world_hint, bool)
+
+
+# ---------------------------------------------------------------------------
+# confirm_difference — 3-gate confirmation (absorbed from CyberStrike)
+# ---------------------------------------------------------------------------
+
+
+_IN_SCOPE_URL = "https://example.com/api/users/1"
+_OK_200 = 'HTTP/1.1 200 OK\n\n{"user": "alice"}'
+
+
+def _set_scope() -> None:
+    _state.scope = Scope(
+        engagement="test-eng",
+        in_scope=[ScopeItem(kind="prefix", value="example.com")],
+        out_of_scope=[],
+        no_fuzzing_on=[],
+        authorized_accounts=[],
+    )
+
+
+def test_confirm_difference_measurable() -> None:
+    """Different bodies -> measurable_difference true, both sides as evidence."""
+    hands = FakeHands(
+        outputs=[
+            'HTTP/1.1 200 OK\n\n{"user": "alice"}',
+            'HTTP/1.1 200 OK\n\n{"user": "bob", "extra": "data"}',
+        ]
+    )
+    _wire_fakes(hands=hands)
+    _set_scope()
+    result = json.loads(
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": "https://example.com/api/users/2"}),
+            )
+        )
+    )
+    assert result["status"] == "success"
+    assert result["diff"]["status_match"] is True
+    assert result["diff"]["body_content_match"] is False
+    assert result["diff"]["measurable_difference"] is True
+    assert result["baseline"]["evidence_id"] != result["attack"]["evidence_id"]
+    assert hands.calls[0][0] == "http_repeater"
+
+
+def test_confirm_difference_identical_not_measurable() -> None:
+    """Identical responses -> NOT a finding (the false-positive rule)."""
+    _wire_fakes(hands=FakeHands(output=_OK_200))
+    _set_scope()
+    result = json.loads(
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": _IN_SCOPE_URL}),
+            )
+        )
+    )
+    assert result["diff"]["body_content_match"] is True
+    assert result["diff"]["measurable_difference"] is False
+    assert abs(result["diff"]["timing_delta_ms"]) < 200
+
+
+def test_confirm_difference_strip_auth() -> None:
+    """strip_auth drops auth headers on that side only; others survive."""
+    hands = FakeHands(output=_OK_200)
+    _wire_fakes(hands=hands)
+    _set_scope()
+    asyncio.run(
+        confirm_difference(
+            json.dumps(
+                {
+                    "target": _IN_SCOPE_URL,
+                    "params": {"headers": {"Authorization": "Bearer t", "X-Custom": "y"}},
+                }
+            ),
+            json.dumps(
+                {
+                    "target": _IN_SCOPE_URL,
+                    "params": {
+                        "headers": {"Authorization": "Bearer t", "Cookie": "sid=1", "X-Custom": "y"}
+                    },
+                    "strip_auth": True,
+                }
+            ),
+        )
+    )
+    assert hands.calls[0][1]["headers"] == {"Authorization": "Bearer t", "X-Custom": "y"}
+    assert hands.calls[1][1]["headers"] == {"X-Custom": "y"}
+
+
+def test_confirm_difference_scope_blocked() -> None:
+    """Out-of-scope attack target is rejected by the scope gate."""
+    _wire_fakes(hands=FakeHands(output=_OK_200))
+    _set_scope()
+    with pytest.raises(ValueError, match="out of scope"):
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": "https://evil.com/api/users/2"}),
+            )
+        )
+
+
+def test_confirm_difference_bad_json() -> None:
+    _wire_fakes(hands=FakeHands(output=_OK_200))
+    _set_scope()
+    with pytest.raises(ValueError, match="must be JSON objects"):
+        asyncio.run(confirm_difference("{not json", "{}"))
+
+
+# ---------------------------------------------------------------------------
+# promote_finding — endpoint-aware duplicate triage (absorbed from CyberStrike)
+# ---------------------------------------------------------------------------
+
+
+def test_promote_finding_similar_endpoint() -> None:
+    """Second finding on the same endpoint surfaces the first as similar."""
+    _wire_fakes()
+    first = json.loads(promote_finding("H-001", "IDOR on users", _IN_SCOPE_URL))
+    second = json.loads(
+        promote_finding("H-002", "IDOR on users again", " HTTPS://Example.com/api/users/1 ")
+    )
+    assert "similar_findings" not in first
+    assert second["similar_findings"][0]["id"] == "F-001"
+    assert "duplicate" in second["note"]
+
+
+def test_promote_finding_no_endpoint_no_shortlist() -> None:
+    _wire_fakes()
+    result = json.loads(promote_finding("H-001", "IDOR on users"))
+    assert "similar_findings" not in result

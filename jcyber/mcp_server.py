@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import sys
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .clients.jev import JevClassifier
@@ -352,6 +354,87 @@ def _save_evidence_raw(ev_id: str, raw: str) -> str | None:
         return None
 
 
+# Passive recon tools bypass Caido proxy routing (nothing to intercept).
+_PASSIVE_TOOLS = frozenset(
+    {
+        "subfinder_scan",
+        "amass_scan",
+        "gau_discovery",
+        "waybackurls_discovery",
+        "paramspider_discovery",
+    }
+)
+
+
+def _execute_capture(tool_name: str, target: str, extra: dict[str, Any]) -> dict[str, Any]:
+    """Run one HexStrike call and persist it as evidence (E-###). Shared by
+    every tool path — single tools and confirm_difference — so evidence
+    handling has exactly one home. Returns the result dict."""
+    hands = _require_hands()
+
+    # Advisory availability check — warn but still attempt.  The /health
+    # schema is guessed; a mismatch must not disable the whole toolset.
+    avail = hands.is_tool_available(tool_name)
+    if avail is False:
+        print(
+            f"[jcyber] WARNING: {tool_name!r} may not be installed in HexStrike. "
+            "Attempting anyway.",
+            file=sys.stderr,
+        )
+
+    call_params: dict[str, Any] = {"target": target, **extra}
+
+    # Route through Caido proxy for active tools
+    if _state.cfg and tool_name not in _PASSIVE_TOOLS:
+        call_params.setdefault("proxy", _state.cfg.caido_proxy)
+
+    started = time.monotonic()
+    raw = hands.call(tool_name, call_params)
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+
+    # Structured error on failure
+    if raw.startswith("[tool_error]"):
+        error_msg = raw[len("[tool_error] ") :]
+        error_type = (
+            "timeout"
+            if "timed out" in error_msg
+            else (
+                "html_response"
+                if "HTML" in error_msg
+                else ("http_error" if "HTTP" in error_msg else "tool_error")
+            )
+        )
+        return {
+            "status": "error",
+            "error_type": error_type,
+            "tool": tool_name,
+            "target": target,
+            "message": error_msg,
+        }
+
+    # Always persist raw output to disk
+    ev_id = _state.next_evidence_id()
+    raw_path = _save_evidence_raw(ev_id, raw)
+
+    # Auto-normalize evidence
+    ev = normalize(_state.engagement_id, tool_name, target, raw, ev_id)
+
+    # Insert into graph if connected and not a duplicate
+    if _state.graph is not None and not _state.graph.seen_sha256(_state.engagement_id, ev.sha256):
+        _state.graph.insert_evidence(ev)
+
+    return {
+        "status": "success",
+        "evidence_id": ev_id,
+        "tool": tool_name,
+        "target": target,
+        "summary": ev.summary,
+        "output": raw[:4000],
+        "raw_path": raw_path,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
 def _make_hexstrike_tool(tool_name: str, description: str):
     """Factory: create a scope-gated MCP tool that calls HexStrike."""
 
@@ -379,79 +462,8 @@ def _make_hexstrike_tool(tool_name: str, description: str):
                 }
             )
 
-        hands = _require_hands()
-
-        # Advisory availability check — warn but still attempt.  The /health
-        # schema is guessed; a mismatch must not disable the whole toolset.
-        avail = hands.is_tool_available(tool_name)
-        if avail is False:
-            print(
-                f"[jcyber] WARNING: {tool_name!r} may not be installed in HexStrike. "
-                "Attempting anyway.",
-                file=sys.stderr,
-            )
-
         extra: dict[str, Any] = json.loads(params) if params and params != "{}" else {}
-        call_params: dict[str, Any] = {"target": target, **extra}
-
-        # Route through Caido proxy for active tools
-        if _state.cfg and tool_name not in {
-            "subfinder_scan",
-            "amass_scan",
-            "gau_discovery",
-            "waybackurls_discovery",
-            "paramspider_discovery",
-        }:
-            call_params.setdefault("proxy", _state.cfg.caido_proxy)
-
-        raw = hands.call(tool_name, call_params)
-
-        # Structured error on failure
-        if raw.startswith("[tool_error]"):
-            error_msg = raw[len("[tool_error] ") :]
-            error_type = (
-                "timeout"
-                if "timed out" in error_msg
-                else (
-                    "html_response"
-                    if "HTML" in error_msg
-                    else ("http_error" if "HTTP" in error_msg else "tool_error")
-                )
-            )
-            return json.dumps(
-                {
-                    "status": "error",
-                    "error_type": error_type,
-                    "tool": tool_name,
-                    "target": target,
-                    "message": error_msg,
-                }
-            )
-
-        # Always persist raw output to disk
-        ev_id = _state.next_evidence_id()
-        raw_path = _save_evidence_raw(ev_id, raw)
-
-        # Auto-normalize evidence
-        ev = normalize(_state.engagement_id, tool_name, target, raw, ev_id)
-
-        # Insert into graph if connected and not a duplicate
-        if _state.graph is not None and not _state.graph.seen_sha256(
-            _state.engagement_id, ev.sha256
-        ):
-            _state.graph.insert_evidence(ev)
-
-        return json.dumps(
-            {
-                "status": "success",
-                "evidence_id": ev_id,
-                "tool": tool_name,
-                "target": target,
-                "summary": ev.summary,
-                "output": raw[:4000],
-                "raw_path": raw_path,
-            }
-        )
+        return json.dumps(_execute_capture(tool_name, target, extra))
 
     # Set proper name and docstring for MCP registration
     tool_fn.__name__ = tool_name
@@ -476,6 +488,139 @@ for _name, _desc in TOOL_CATALOG.items():
         _make_hexstrike_tool(_name, _desc),
         name=_name,
         annotations=_annotations,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Verification — 3-gate confirmation (absorbed from CyberStrike's proxy
+# sub-testers: Gate 1 baseline, Gate 2 attack, Gate 3 measurable diff)
+# ---------------------------------------------------------------------------
+
+# Auth headers stripped when strip_auth=true — CyberStrike's COMMON_AUTH_HEADERS.
+AUTH_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "x-auth-token",
+        "x-api-key",
+        "x-access-token",
+        "x-session-token",
+        "x-csrf-token",
+    }
+)
+
+_STATUS_LINE = re.compile(r"^HTTP/[\d.]+\s+(\d{3})")
+
+
+def _strip_auth_headers(params: dict[str, Any]) -> dict[str, Any]:
+    """Remove auth headers from http_repeater params (unauthenticated replay)."""
+    headers: Any = params.get("headers")
+    if isinstance(headers, dict):
+        typed = cast("dict[str, Any]", headers)
+        params["headers"] = {k: v for k, v in typed.items() if k.lower() not in AUTH_HEADERS}
+    return params
+
+
+def _parse_response(raw: str) -> tuple[int | None, str]:
+    """Split raw repeater output into (status, body). Tolerant of format:
+    no HTTP status line -> (None, whole text)."""
+    text = raw.lstrip()
+    m = _STATUS_LINE.match(text)
+    if not m:
+        return None, text
+    _, sep, body = text.partition("\n\n")
+    if not sep:
+        return int(m.group(1)), ""
+    return int(m.group(1)), body
+
+
+def _diff_responses(baseline: dict[str, Any], attack: dict[str, Any]) -> dict[str, Any]:
+    """Mechanical diff of two captured responses (absorbed from CyberStrike's
+    buildDiff): exact-match booleans + timing delta. Never decides
+    'vulnerable' — the agent judges the observations."""
+    base_status, base_body = _parse_response(str(baseline.get("output", "")))
+    atk_status, atk_body = _parse_response(str(attack.get("output", "")))
+    delta_ms = int(attack.get("elapsed_ms", 0)) - int(baseline.get("elapsed_ms", 0))
+    status_match = base_status == atk_status
+    body_match = base_body == atk_body
+    return {
+        "status_match": status_match,
+        "baseline_status": base_status,
+        "attack_status": atk_status,
+        "body_length_match": len(base_body) == len(atk_body),
+        "baseline_body_len": len(base_body),
+        "attack_body_len": len(atk_body),
+        "body_content_match": body_match,
+        "timing_delta_ms": delta_ms,
+        "measurable_difference": (not status_match) or (not body_match) or abs(delta_ms) >= 200,
+    }
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
+    )
+)
+async def confirm_difference(baseline_request: str, attack_request: str) -> str:
+    """3-gate confirmation protocol: replay a baseline request and an attack
+    request through http_repeater, then diff the responses mechanically.
+    A finding requires a MEASURABLE difference (status, body, or timing) —
+    "both return 200 with the same body" is NOT a finding. Both sides are
+    persisted as evidence. Never decides 'vulnerable' — you judge the diff.
+
+    baseline_request / attack_request: JSON objects:
+      {"target": "https://host/path",
+       "params": {http_repeater params (headers, method, body, ...)},
+       "strip_auth": false}
+    strip_auth drops authorization/cookie/x-*-token headers from that side —
+    set it on the attack side to test unauthenticated access.
+    """
+    try:
+        base_raw: Any = json.loads(baseline_request)
+        atk_raw: Any = json.loads(attack_request)
+    except ValueError as e:
+        raise ValueError(f"baseline_request/attack_request must be JSON objects: {e}") from e
+    if not isinstance(base_raw, dict) or not isinstance(atk_raw, dict):
+        raise ValueError("baseline_request/attack_request must be JSON objects")
+    base = cast("dict[str, Any]", base_raw)
+    atk = cast("dict[str, Any]", atk_raw)
+
+    captured: dict[str, dict[str, Any]] = {}
+    for name, side in (("baseline", base), ("attack", atk)):
+        target = str(side.get("target", ""))
+        if not target:
+            raise ValueError(f"{name}_request is missing 'target'")
+        _check_scope(target)
+        extra: dict[str, Any] = dict(side.get("params") or {})
+        if side.get("strip_auth"):
+            extra = _strip_auth_headers(extra)
+        result = _execute_capture("http_repeater", target, extra)
+        if result.get("status") != "success":
+            return json.dumps({"status": "error", "side": name, **result})
+        captured[name] = result
+
+    diff = _diff_responses(captured["baseline"], captured["attack"])
+    return json.dumps(
+        {
+            "status": "success",
+            "baseline": {
+                "evidence_id": captured["baseline"]["evidence_id"],
+                "raw_path": captured["baseline"]["raw_path"],
+            },
+            "attack": {
+                "evidence_id": captured["attack"]["evidence_id"],
+                "raw_path": captured["attack"]["raw_path"],
+            },
+            "diff": diff,
+            "guidance": (
+                "Judge the diff: status/body difference = access-control or logic signal; "
+                "timing_delta_ms >= 200 = injection signal; identical status AND body = "
+                "NOT a finding. Re-run to confirm reproducibility before promote_finding."
+            ),
+        }
     )
 
 
@@ -520,6 +665,7 @@ def create_hypothesis(
 def promote_finding(
     hypothesis_id: str,
     title: str,
+    endpoint: str = "",
 ) -> str:
     """Promote a confirmed hypothesis to a Finding (F-###). Only do this
     when you have strong evidence that the vulnerability is real and
@@ -527,13 +673,31 @@ def promote_finding(
 
     hypothesis_id: the H-### id to promote
     title: descriptive title for the finding
+    endpoint: affected URL or endpoint (optional). Enables duplicate detection:
+      findings already recorded for the same endpoint are returned as
+      similar_findings for you to triage (merge into one, or keep both if
+      genuinely distinct issues).
     """
     graph = _require_graph()
     fid = _state.next_finding_id()
-    graph.create_finding(_state.engagement_id, fid, title, hypothesis_id)
+    # Absorbed from CyberStrike's normEndpoint: lowercase + collapse whitespace.
+    dedup_key = " ".join(endpoint.lower().split())
+    similar = graph.find_similar_findings(_state.engagement_id, dedup_key) if dedup_key else []
+    graph.create_finding(_state.engagement_id, fid, title, hypothesis_id, endpoint, dedup_key)
     # Mark hypothesis as promoted
     graph.apply_verdict(_state.engagement_id, hypothesis_id, "promote", 1.0)
-    return json.dumps({"finding_id": fid, "title": title, "from_hypothesis": hypothesis_id})
+    result: dict[str, Any] = {
+        "finding_id": fid,
+        "title": title,
+        "from_hypothesis": hypothesis_id,
+    }
+    if similar:
+        result["similar_findings"] = similar
+        result["note"] = (
+            "Existing finding(s) share this endpoint. Judge whether this is a "
+            "duplicate (merge into one finding) or a distinct issue before reporting."
+        )
+    return json.dumps(result)
 
 
 @mcp.tool(

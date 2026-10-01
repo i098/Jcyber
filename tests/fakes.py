@@ -28,6 +28,7 @@ class FakeGraph:
         self._seen: set[str] = set()
         self.report: JSON = report if report is not None else {"engagement": "", "findings": []}
         self.chains: list[dict[str, JSON]] = []
+        self.findings: list[dict[str, JSON]] = []
 
     def project_state(self, engagement_id: str) -> JSON:
         return self.projection
@@ -56,8 +57,25 @@ class FakeGraph:
     def create_hypothesis(self, engagement_id: str, hid: str, text: str, evidence_id: str) -> None:
         pass
 
-    def create_finding(self, engagement_id: str, fid: str, title: str, hypothesis_id: str) -> None:
-        pass
+    def create_finding(
+        self,
+        engagement_id: str,
+        fid: str,
+        title: str,
+        hypothesis_id: str,
+        endpoint: str = "",
+        dedup_key: str = "",
+    ) -> None:
+        self.findings.append(
+            {"id": fid, "title": title, "endpoint": endpoint, "dedup_key": dedup_key}
+        )
+
+    def find_similar_findings(self, engagement_id: str, dedup_key: str) -> list[dict[str, JSON]]:
+        return [
+            {"id": f["id"], "title": f["title"]}
+            for f in self.findings
+            if f["dedup_key"] == dedup_key
+        ][:6]
 
     def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
         pass
@@ -80,12 +98,20 @@ class FakeGraph:
 
 
 class FakeHands:
-    def __init__(self, output: str = "line one\nline two") -> None:
+    def __init__(
+        self, output: str = "line one\nline two", outputs: list[str] | None = None
+    ) -> None:
         self.output = output
+        self.outputs = outputs
         self.calls: list[tuple[str, dict[str, JSON]]] = []
+
+    def is_tool_available(self, mcp_name: str) -> bool | None:
+        return None
 
     def call(self, tool: str, params: Mapping[str, JSON]) -> str:
         self.calls.append((tool, dict(params)))
+        if self.outputs is not None:
+            return self.outputs.pop(0)
         return self.output
 
 

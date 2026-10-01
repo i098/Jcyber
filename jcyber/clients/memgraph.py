@@ -216,11 +216,20 @@ class MemgraphStore:
                 evid=evidence_id,
             )
 
-    def create_finding(self, engagement_id: str, fid: str, title: str, hypothesis_id: str) -> None:
+    def create_finding(
+        self,
+        engagement_id: str,
+        fid: str,
+        title: str,
+        hypothesis_id: str,
+        endpoint: str = "",
+        dedup_key: str = "",
+    ) -> None:
         with self._driver.session() as s:
             s.run(
                 "MERGE (f:Finding {engagement_id: $eid, id: $fid}) "
-                "SET f.title=$title, f.status='provisional', f.severity=null "
+                "SET f.title=$title, f.status='provisional', f.severity=null, "
+                "f.endpoint=$endpoint, f.dedup_key=$dedup_key "
                 "WITH f "
                 "MATCH (h:Hypothesis {engagement_id: $eid, id: $hid}) "
                 "MERGE (h)-[:DERIVES]->(f)",
@@ -228,7 +237,24 @@ class MemgraphStore:
                 fid=fid,
                 title=title,
                 hid=hypothesis_id,
+                endpoint=endpoint,
+                dedup_key=dedup_key,
             )
+
+    def find_similar_findings(self, engagement_id: str, dedup_key: str) -> list[dict[str, JSON]]:
+        """Findings sharing a normalized endpoint (absorbed from CyberStrike's
+        findSimilar shortlist). A triage hint for the agent — never a
+        dedup decision; the caller judges and merges."""
+        with self._driver.session() as s:
+            rows = list(
+                s.run(
+                    "MATCH (f:Finding {engagement_id: $eid, dedup_key: $key}) "
+                    "RETURN f.id AS id, f.title AS title ORDER BY f.id LIMIT 6",
+                    eid=engagement_id,
+                    key=dedup_key,
+                )
+            )
+        return [{"id": r["id"], "title": r["title"]} for r in rows]
 
     def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
         sev_map = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}

@@ -100,6 +100,35 @@ After exhausting known templates:
 - Use `http_repeater` to craft manual payloads — scanners test common
   patterns, you test target-specific ones.
 
+## Confirmation Protocol
+
+**A finding requires a MEASURABLE difference. Never report on speculation.**
+
+Before calling `promote_finding`, run `confirm_difference` with two requests:
+
+- **Gate 1 — Baseline**: the benign request — what the app returns without the bug.
+- **Gate 2 — Attack**: the same request mutated — payload, tampered id, or `"strip_auth": true` to replay without auth headers.
+- **Gate 3 — Diff**: `confirm_difference` returns the mechanical diff (status codes, body match, timing delta). Judge it:
+
+| Signal | Meaning |
+|--------|---------|
+| Status or body differs | Access-control or logic signal — attack reaches data the baseline cannot |
+| `timing_delta_ms >= 200` | Injection signal (blind SQLi, SSTI) |
+| Identical status AND body | NOT a finding. Do not report. |
+
+False-positive rules — do NOT report when:
+- both sides return 200 with the same body
+- both sides return the same error
+- the attack side gets 401/403 (the access control works)
+
+Reproducibility: re-run `confirm_difference` once before promoting. A finding
+you cannot reproduce twice is still a hypothesis.
+
+**Duplicates.** Always pass `endpoint` to `promote_finding`. If an existing
+finding shares the endpoint, it returns `similar_findings` — decide: merge
+into one finding, or keep both only if they are genuinely distinct issues.
+
+
 ## Finding Lifecycle
 
 **Never skip steps.** Every finding must trace back to evidence.
@@ -148,7 +177,7 @@ All IDs are sequential per engagement, never reused:
 | Have endpoints, check for vulns | `nuclei_scan` |
 | Found a form/parameter | `sqlmap_scan`, `dalfox_xss_scan` |
 | WordPress site | `wpscan_analyze` |
-| Need to confirm a vuln | `http_repeater` |
+| Need to confirm a vuln | `confirm_difference` (3-gate), `http_repeater` |
 | API endpoint | `api_fuzzer`, `comprehensive_api_audit` |
 | GraphQL | `graphql_scanner` |
 | JWT in use | `jwt_analyzer` |

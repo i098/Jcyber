@@ -1,7 +1,7 @@
 # Setup Guide
 
 Get Jcyber running in under 5 minutes. By the end you'll have an agent
-driving a pentest through 54 MCP tools with scope enforcement.
+driving a pentest through 57 MCP tools with scope enforcement.
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ Only needed if you installed the `jev` extra. The MCP server works without it.
 Reload MCP servers (`/mcp reload` in OMP).
 
 **Other MCP clients:** Point your client at `uv run python -m jcyber serve`
-over stdio. The server exposes 54 tools.
+over stdio. The server exposes 57 tools.
 
 ## Step 5: Start a session
 

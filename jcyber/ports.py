@@ -31,8 +31,17 @@ class GraphStore(Protocol):
         self, engagement_id: str, hid: str, text: str, evidence_id: str
     ) -> None: ...
     def create_finding(
-        self, engagement_id: str, fid: str, title: str, hypothesis_id: str
+        self,
+        engagement_id: str,
+        fid: str,
+        title: str,
+        hypothesis_id: str,
+        endpoint: str = "",
+        dedup_key: str = "",
     ) -> None: ...
+    def find_similar_findings(
+        self, engagement_id: str, dedup_key: str
+    ) -> list[dict[str, JSON]]: ...
     def score_finding(self, engagement_id: str, fid: str, severity: int) -> None: ...
 
 

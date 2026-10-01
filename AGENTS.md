@@ -2,7 +2,7 @@
 
 ## You are the brain
 
-Jcyber gives you 54 MCP tools: scanners, a graph database, evidence
+Jcyber gives you 57 MCP tools: scanners, a graph database, evidence
 management, and classifiers. **You decide what to do with them.** There is
 no predefined workflow, no fixed sequence, no script to follow. You have
 everything a pentester has — recon tools, vulnerability scanners, fuzzers,
@@ -26,16 +26,17 @@ you have full autonomy.
 - Recon: `subfinder_scan`, `nmap_scan`, `httpx_probe`, `katana_crawl`, `ffuf_scan`, `gobuster_scan`, ...
 - Probing: `nuclei_scan`, `sqlmap_scan`, `dalfox_xss_scan`, `wpscan_analyze`, `jwt_analyzer`, `graphql_scanner`, ...
 - Fuzzing: `ffuf_scan`, `wfuzz_scan`, `api_fuzzer`
-- Verification: `http_repeater`, `browser_agent_inspect`
+- Verification: `http_repeater`, `confirm_difference` (3-gate baseline/attack/diff), `browser_agent_inspect`
 - Exploit: `metasploit_run`, `hydra_attack`, ... (operator confirmation required)
 
-**10 management tools:**
+**12 management tools:**
 - `intake_target` — start an engagement from a URL
 - `get_state` — see what you know so far (evidence, hypotheses, findings)
 - `create_hypothesis` — record a testable claim from evidence
-- `promote_finding` — confirm a hypothesis into a finding
+- `promote_finding` — confirm a hypothesis into a finding (pass `endpoint` for duplicate triage)
 - `score_finding` — rate severity
 - `retire_hypothesis` — mark a dead end
+- `create_attack_chain` / `get_attack_chains` — link findings into an attack path
 - `render_findings_report` — produce the final report
 - `get_decision_trace` — audit trail of what happened
 - `recall_lessons` / `commit_learnings` — cross-engagement memory
@@ -120,7 +121,7 @@ might chain into a critical data breach.
 
 | Path | What |
 |------|------|
-| `jcyber/mcp_server.py` | MCP server, 54 tools |
+| `jcyber/mcp_server.py` | MCP server, 57 tools |
 | `jcyber/SKILL.md` | Pentesting methodology |
 | `jcyber/clients/jev.py` | Jev classifiers (severity, duplicate) |
 | `jcyber/scope.py` | Scope gate |

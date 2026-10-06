@@ -27,7 +27,7 @@ dependencies = [
 jev = ["typesafe-sdk"]  # Jev classifiers (triage, severity, duplicate, tool hint)
 
 [project.urls]
-Repository = "https://github.com/undeemed/Jcyber"
+Repository = "https://github.com/i098/Jcyber"
 
 [project.scripts]
 jcyber = "jcyber.__main__:main"

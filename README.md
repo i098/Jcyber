@@ -1,9 +1,12 @@
 # Jcyber
 
-[![CI](https://github.com/undeemed/Jcyber/actions/workflows/ci.yml/badge.svg)](https://github.com/undeemed/Jcyber/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![M8ven Score](https://m8ven.ai/badge/mcp/undeemed-jcyber-1hp3zt)](https://m8ven.ai/mcp/undeemed-jcyber-1hp3zt)
+[![CI](https://github.com/i098/Jcyber/actions/workflows/ci.yml/badge.svg)](https://github.com/i098/Jcyber/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square&logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg?style=flat-square)](https://docs.astral.sh/ruff/)
+[![sentrux](https://img.shields.io/badge/lint-sentrux-7C3AED.svg?style=flat-square)](https://github.com/getsentry/sentrux)
+[![pyright](https://img.shields.io/badge/types-pyright-3178C6.svg?style=flat-square)](https://microsoft.github.io/pyright/)
+[![pyrefly](https://img.shields.io/badge/types-pyrefly-F60048.svg?style=flat-square)](https://pyrefly.org/)
 
 **MCP toolkit for agent-driven pentesting.** The agent harness (Claude Code,
 or any MCP-capable LLM) is the reasoning loop. Jcyber provides scope-gated

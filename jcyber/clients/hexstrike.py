@@ -132,6 +132,9 @@ _TARGET_PARAM: dict[str, str] = {
     "arjun_scan": "url",
     "jaeles_vulnerability_scan": "url",
     "dalfox_xss_scan": "url",
+    # http-framework reads `url`, not `target` (verified against the live
+    # endpoint 2026-10-01: without this remap every http_repeater call 400s)
+    "http_repeater": "url",
 }
 
 # httpx endpoint builds `httpx -l {target}` treating target as a file path.

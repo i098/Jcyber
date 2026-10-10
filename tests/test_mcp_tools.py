@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any, cast
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 import jcyber.mcp_server as _mod
 from jcyber.clients.jev import DuplicateResult, SeverityResult
@@ -84,6 +86,25 @@ def _wire_fakes(
     _state._ac_seq = 0
 
 
+def test_guidance_errors_reach_the_agent():
+    """Anticipated failures keep their message through the MCP boundary.
+    The lib wraps non-ToolError exceptions as a bare "Error executing tool
+    get_state" — the agent then can't tell intake from Memgraph from scope."""
+    # No intake yet: engagement/scope/hands all unset, backends not ensured.
+    _state.engagement_id = ""
+    _state.scope = None
+    _state.graph = None
+    _mod._backends_initialized = False
+    tools = {t.name: t for t in mcp._tool_manager.list_tools()}
+    ctx = cast("Any", None)  # tools use module state, never the MCP context
+    with pytest.raises(ToolError, match="No engagement loaded. Call intake_target first."):
+        asyncio.run(tools["get_state"].run({}, context=ctx))
+    with pytest.raises(ToolError, match="No engagement loaded. Call intake_target first."):
+        asyncio.run(
+            tools["promote_finding"].run({"hypothesis_id": "H-001", "title": "t"}, context=ctx)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Annotation tests — every tool has all four hints set to explicit booleans
 # ---------------------------------------------------------------------------
@@ -110,7 +131,8 @@ def test_exploit_tools_marked_destructive():
     tools = {t.name: t for t in mcp._tool_manager.list_tools()}
     for name in EXPLOIT_TOOLS:
         assert name in tools, f"exploit tool {name} not registered"
-        assert tools[name].annotations.destructive_hint is True, f"{name} should be destructive"
+        ann = tools[name].annotations
+        assert ann is not None and ann.destructive_hint is True, f"{name} should be destructive"
 
 
 def test_readonly_tools_not_destructive():
@@ -181,7 +203,7 @@ def test_score_finding():
 
 def test_score_finding_invalid_severity():
     _wire_fakes()
-    with pytest.raises(ValueError, match="severity must be one of"):
+    with pytest.raises(ToolError, match="severity must be one of"):
         score_finding("F-001", "urgent")
 
 
@@ -212,7 +234,7 @@ def test_create_attack_chain_theoretical():
 
 def test_create_attack_chain_empty_steps():
     _wire_fakes()
-    with pytest.raises(ValueError, match="at least one step"):
+    with pytest.raises(ToolError, match="at least one step"):
         create_attack_chain("empty", "none", [])
 
 
@@ -377,6 +399,83 @@ def test_confirm_difference_measurable() -> None:
     assert hands.calls[0][0] == "http_repeater"
 
 
+def test_confirm_difference_hexstrike_envelope_shape() -> None:
+    """Live http-framework returns {"response": {"status_code", "content",
+    "time"}} JSON — status/body/time must be read from there, not a raw
+    HTTP status line."""
+    hands = FakeHands(
+        outputs=[
+            json.dumps({"response": {"status_code": 200, "content": '{"ok": true}', "time": 0.05}}),
+            json.dumps({"response": {"status_code": 403, "content": "blocked", "time": 0.02}}),
+        ]
+    )
+    _wire_fakes(hands=hands)
+    _set_scope()
+    result = json.loads(
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": _IN_SCOPE_URL}),
+            )
+        )
+    )
+    assert result["diff"]["baseline_status"] == 200
+    assert result["diff"]["attack_status"] == 403
+    assert result["diff"]["status_match"] is False
+    assert result["diff"]["measurable_difference"] is True
+    assert result["diff"]["timing_delta_ms"] == -30  # 20ms - 50ms, internal timing
+
+
+def test_confirm_difference_truncated_output_still_diffs() -> None:
+    """Envelope outputs longer than the 4000-char output cap still diff on
+    status/body — the parse happens at capture time, before truncation."""
+    hands = FakeHands(
+        outputs=[
+            json.dumps({"response": {"status_code": 200, "content": "A" * 9000, "time": 0.1}}),
+            json.dumps({"response": {"status_code": 500, "content": "B" * 9000, "time": 0.1}}),
+        ]
+    )
+    _wire_fakes(hands=hands)
+    _set_scope()
+    result = json.loads(
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": _IN_SCOPE_URL}),
+            )
+        )
+    )
+    assert result["diff"]["baseline_status"] == 200
+    assert result["diff"]["attack_status"] == 500
+    assert result["diff"]["body_length_match"] is True  # same length, different content
+    assert result["diff"]["body_content_match"] is False
+    assert result["diff"]["measurable_difference"] is True
+
+
+def test_confirm_difference_faster_attack_not_measurable() -> None:
+    """Identical status+body with the attack FASTER (first-request warmup on
+    the baseline) is NOT a finding — only a slower attack is a timing signal.
+    Regression from the live swisschems trial (-775ms warmup delta)."""
+    hands = FakeHands(
+        outputs=[
+            json.dumps({"response": {"status_code": 401, "content": "nope", "time": 1.2}}),
+            json.dumps({"response": {"status_code": 401, "content": "nope", "time": 0.4}}),
+        ]
+    )
+    _wire_fakes(hands=hands)
+    _set_scope()
+    result = json.loads(
+        asyncio.run(
+            confirm_difference(
+                json.dumps({"target": _IN_SCOPE_URL}),
+                json.dumps({"target": _IN_SCOPE_URL}),
+            )
+        )
+    )
+    assert result["diff"]["timing_delta_ms"] == -800
+    assert result["diff"]["measurable_difference"] is False
+
+
 def test_confirm_difference_identical_not_measurable() -> None:
     """Identical responses -> NOT a finding (the false-positive rule)."""
     _wire_fakes(hands=FakeHands(output=_OK_200))
@@ -426,7 +525,7 @@ def test_confirm_difference_scope_blocked() -> None:
     """Out-of-scope attack target is rejected by the scope gate."""
     _wire_fakes(hands=FakeHands(output=_OK_200))
     _set_scope()
-    with pytest.raises(ValueError, match="out of scope"):
+    with pytest.raises(ToolError, match="out of scope"):
         asyncio.run(
             confirm_difference(
                 json.dumps({"target": _IN_SCOPE_URL}),
@@ -438,7 +537,7 @@ def test_confirm_difference_scope_blocked() -> None:
 def test_confirm_difference_bad_json() -> None:
     _wire_fakes(hands=FakeHands(output=_OK_200))
     _set_scope()
-    with pytest.raises(ValueError, match="must be JSON objects"):
+    with pytest.raises(ToolError, match="must be JSON objects"):
         asyncio.run(confirm_difference("{not json", "{}"))
 
 

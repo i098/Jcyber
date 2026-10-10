@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .clients.jev import JevClassifier
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
 from .clients.caido import CaidoProxy
@@ -161,27 +162,27 @@ def get_server_state() -> ServerState:
 
 def _require_engagement() -> None:
     if not _state.engagement_id:
-        raise ValueError("No engagement loaded. Call intake_target first.")
+        raise ToolError("No engagement loaded. Call intake_target first.")
 
 
 def _require_graph() -> MemgraphStore:
     _ensure_backends()
     _require_engagement()
     if _state.graph is None:
-        raise ValueError("Memgraph not connected. Set MEMGRAPH_URI env var.")
+        raise ToolError("Memgraph not connected. Set MEMGRAPH_URI env var.")
     return _state.graph
 
 
 def _require_hands() -> HexStrikeHands:
     _ensure_backends()
     if _state.hands is None:
-        raise ValueError("HexStrike not connected. Set HEXSTRIKE_URL env var.")
+        raise ToolError("HexStrike not connected. Set HEXSTRIKE_URL env var.")
     return _state.hands
 
 
 def _require_scope() -> Scope:
     if _state.scope is None:
-        raise ValueError("No scope loaded. Call intake_target first.")
+        raise ToolError("No scope loaded. Call intake_target first.")
     return _state.scope
 
 
@@ -190,7 +191,7 @@ def _check_scope(target: str) -> None:
     String matching against scope.toon, no model, non-jailbreakable."""
     scope = _require_scope()
     if not in_scope(target, scope):
-        raise ValueError(
+        raise ToolError(
             f"BLOCKED: target {target!r} is out of scope. "
             f"In-scope: {[i.value for i in scope.in_scope]}. "
             f"Out-of-scope: {[o.value for o in scope.out_of_scope]}."
@@ -200,7 +201,7 @@ def _check_scope(target: str) -> None:
 def _check_fuzzing(target: str) -> None:
     scope = _require_scope()
     if violates_no_fuzzing(target, scope):
-        raise ValueError(
+        raise ToolError(
             f"BLOCKED: fuzzing on {target!r} violates no_fuzzing_on constraint. "
             f"Protected paths: {list(scope.no_fuzzing_on)}"
         )
@@ -245,7 +246,11 @@ def intake_target(
     severity: minimum finding severity to report (critical, high, medium, low, none).
     """
     _ensure_backends()
-    result = intake_link(url, severity)
+    try:
+        result = intake_link(url, severity)
+    except ValueError as e:
+        # intake raises ValueError for CLI humans; the agent needs the text.
+        raise ToolError(f"intake failed: {e}") from e
     _state.engagement_id = result.slug
     CliToonCodec()
 
@@ -423,7 +428,7 @@ def _execute_capture(tool_name: str, target: str, extra: dict[str, Any]) -> dict
     if _state.graph is not None and not _state.graph.seen_sha256(_state.engagement_id, ev.sha256):
         _state.graph.insert_evidence(ev)
 
-    return {
+    result: dict[str, Any] = {
         "status": "success",
         "evidence_id": ev_id,
         "tool": tool_name,
@@ -433,6 +438,14 @@ def _execute_capture(tool_name: str, target: str, extra: dict[str, Any]) -> dict
         "raw_path": raw_path,
         "elapsed_ms": elapsed_ms,
     }
+    # Parse the HexStrike repeater envelope BEFORE the output gets truncated
+    # at 4000 chars — the diff needs the untruncated status/body/time.
+    parsed = _parse_envelope(raw)
+    if parsed is not None:
+        result["parsed_status"] = parsed["status"]
+        result["parsed_body"] = parsed["body"]
+        result["parsed_time_ms"] = parsed["time_ms"]
+    return result
 
 
 def _make_hexstrike_tool(tool_name: str, description: str):
@@ -521,8 +534,34 @@ def _strip_auth_headers(params: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _parse_envelope(raw: str) -> dict[str, Any] | None:
+    """HexStrike http-framework JSON shape: {"response": {"status_code",
+    "content", "time"}}. Returns {"status", "body", "time_ms"} or None
+    when the output is not that shape."""
+    try:
+        obj: Any = json.loads(raw.lstrip())
+    except ValueError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    obj_d = cast("dict[str, Any]", obj)
+    resp: Any = obj_d.get("response")
+    if not isinstance(resp, dict) or "status_code" not in resp:
+        return None
+    resp_d = cast("dict[str, Any]", resp)
+    time_ms: float | None = None
+    t: Any = resp_d.get("time")
+    if isinstance(t, (int, float)):
+        time_ms = float(t) * 1000
+    return {
+        "status": int(resp_d["status_code"]),
+        "body": str(resp_d.get("content", "")),
+        "time_ms": time_ms,
+    }
+
+
 def _parse_response(raw: str) -> tuple[int | None, str]:
-    """Split raw repeater output into (status, body). Tolerant of format:
+    """Split a raw HTTP response into (status, body). Tolerant of format:
     no HTTP status line -> (None, whole text)."""
     text = raw.lstrip()
     m = _STATUS_LINE.match(text)
@@ -538,9 +577,31 @@ def _diff_responses(baseline: dict[str, Any], attack: dict[str, Any]) -> dict[st
     """Mechanical diff of two captured responses (absorbed from CyberStrike's
     buildDiff): exact-match booleans + timing delta. Never decides
     'vulnerable' — the agent judges the observations."""
-    base_status, base_body = _parse_response(str(baseline.get("output", "")))
-    atk_status, atk_body = _parse_response(str(attack.get("output", "")))
-    delta_ms = int(attack.get("elapsed_ms", 0)) - int(baseline.get("elapsed_ms", 0))
+    base_status: int | None
+    atk_status: int | None
+    base_t: float | None
+    atk_t: float | None
+    base_p: Any = baseline.get("parsed_status")
+    atk_p: Any = attack.get("parsed_status")
+    if base_p is not None and atk_p is not None:
+        # Untruncated envelope parse done at capture time.
+        base_status, base_body = int(base_p), str(baseline.get("parsed_body", ""))
+        atk_status, atk_body = int(atk_p), str(attack.get("parsed_body", ""))
+        bt: Any = baseline.get("parsed_time_ms")
+        at: Any = attack.get("parsed_time_ms")
+        base_t = float(bt) if isinstance(bt, (int, float)) else None
+        atk_t = float(at) if isinstance(at, (int, float)) else None
+    else:
+        base_status, base_body = _parse_response(str(baseline.get("output", "")))
+        atk_status, atk_body = _parse_response(str(attack.get("output", "")))
+        base_t = None
+        atk_t = None
+    if base_t is None or atk_t is None:
+        # ponytail: fall back to wall-clock (includes REST overhead) when
+        # HexStrike's internal timing is absent; fine for multi-second signals.
+        base_t = float(baseline.get("elapsed_ms", 0))
+        atk_t = float(attack.get("elapsed_ms", 0))
+    delta_ms = int(atk_t - base_t)
     status_match = base_status == atk_status
     body_match = base_body == atk_body
     return {
@@ -552,7 +613,9 @@ def _diff_responses(baseline: dict[str, Any], attack: dict[str, Any]) -> dict[st
         "attack_body_len": len(atk_body),
         "body_content_match": body_match,
         "timing_delta_ms": delta_ms,
-        "measurable_difference": (not status_match) or (not body_match) or abs(delta_ms) >= 200,
+        # Only a SLOWER attack counts: blind SQLi sleeps; a faster attack
+        # (warm cache, first-request warmup) is noise, not a signal.
+        "measurable_difference": (not status_match) or (not body_match) or delta_ms >= 200,
     }
 
 
@@ -582,9 +645,9 @@ async def confirm_difference(baseline_request: str, attack_request: str) -> str:
         base_raw: Any = json.loads(baseline_request)
         atk_raw: Any = json.loads(attack_request)
     except ValueError as e:
-        raise ValueError(f"baseline_request/attack_request must be JSON objects: {e}") from e
+        raise ToolError(f"baseline_request/attack_request must be JSON objects: {e}") from e
     if not isinstance(base_raw, dict) or not isinstance(atk_raw, dict):
-        raise ValueError("baseline_request/attack_request must be JSON objects")
+        raise ToolError("baseline_request/attack_request must be JSON objects")
     base = cast("dict[str, Any]", base_raw)
     atk = cast("dict[str, Any]", atk_raw)
 
@@ -592,7 +655,7 @@ async def confirm_difference(baseline_request: str, attack_request: str) -> str:
     for name, side in (("baseline", base), ("attack", atk)):
         target = str(side.get("target", ""))
         if not target:
-            raise ValueError(f"{name}_request is missing 'target'")
+            raise ToolError(f"{name}_request is missing 'target'")
         _check_scope(target)
         extra: dict[str, Any] = dict(side.get("params") or {})
         if side.get("strip_auth"):
@@ -724,7 +787,7 @@ def score_finding(
     sev_map = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
     sev_int = sev_map.get(severity.lower())
     if sev_int is None:
-        raise ValueError(f"severity must be one of {list(sev_map)}")
+        raise ToolError(f"severity must be one of {list(sev_map)}")
     graph.score_finding(_state.engagement_id, finding_id, sev_int)
     return json.dumps(
         {
@@ -777,7 +840,7 @@ def create_attack_chain(
     step_ids: ordered list of F-### and/or H-### ids forming the chain
     """
     if not step_ids:
-        raise ValueError("Attack chain requires at least one step id")
+        raise ToolError("Attack chain requires at least one step id")
     graph = _require_graph()
     ac_id = _state.next_chain_id()
     status = graph.create_attack_chain(_state.engagement_id, ac_id, title, impact, step_ids)
@@ -874,7 +937,7 @@ def _get_jev() -> JevClassifier:
 
             _jev = _JC.from_env()
         except Exception as e:
-            raise ValueError(f"Jev unavailable (set TYPESAFE_API_KEY): {e}") from e
+            raise ToolError(f"Jev unavailable (set TYPESAFE_API_KEY): {e}") from e
     return _jev
 
 

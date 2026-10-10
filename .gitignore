@@ -1,3 +1,4 @@
+omp-session-*.html
 engagements/
 evidence/
 __pycache__/
@@ -9,4 +10,7 @@ node_modules/
 .env
 .env.local
 # session exports (may contain pentest findings for live targets)
-omp-session-*.html
+
+# operator-local OMP config; skills stay tracked
+.omp/*
+!.omp/skills/

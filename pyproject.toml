@@ -38,6 +38,8 @@ dev = [
     "pyright>=1.1.390",
     "pytest>=8",
     "typesafe-sdk",    # needed for pyright to type-check jcyber/clients/jev.py
+    "sentrux>=0.1.6",
+    "pyrefly>=1.3.2",
 ]
 
 [build-system]

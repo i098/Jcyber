@@ -18,8 +18,6 @@ jobs:
         run: uv run sentrux check .
       - name: pyrefly types
         run: uv run pyrefly check jcyber tests
-      - name: pyright (strict)
-        run: uv run pyright
       - name: pytest
         run: uv run pytest
 

@@ -5,7 +5,6 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg?style=flat-square)](https://docs.astral.sh/ruff/)
 [![sentrux](https://img.shields.io/badge/lint-sentrux-7C3AED.svg?style=flat-square)](https://github.com/getsentry/sentrux)
-[![pyright](https://img.shields.io/badge/types-pyright-3178C6.svg?style=flat-square)](https://microsoft.github.io/pyright/)
 [![pyrefly](https://img.shields.io/badge/types-pyrefly-F60048.svg?style=flat-square)](https://pyrefly.org/)
 
 **MCP toolkit for agent-driven pentesting.** The agent harness (Claude Code,

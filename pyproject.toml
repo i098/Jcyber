@@ -35,9 +35,8 @@ jcyber = "jcyber.__main__:main"
 [dependency-groups]
 dev = [
     "ruff>=0.6",
-    "pyright>=1.1.390",
     "pytest>=8",
-    "typesafe-sdk",    # needed for pyright to type-check jcyber/clients/jev.py
+    "typesafe-sdk",    # type-checks jcyber/clients/jev.py
     "sentrux>=0.1.6",
     "pyrefly>=1.3.2",
 ]
@@ -53,15 +52,16 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "strict"
-include = ["jcyber", "tests"]
-# Strict everywhere. The "unknown" rules fire only on partially-typed third-party
-# SDKs; they are relaxed via per-file pragmas in the adapter files that wrap
-# them (jcyber/clients/*), keeping the pure decision core fully strict.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.pyrefly]
+project-includes = [
+    "jcyber",
+    "tests",
+]
+python-version = "3.12.0"
+infer-with-first-use = false

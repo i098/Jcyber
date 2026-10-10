@@ -84,6 +84,13 @@ Every confirmed primitive: ask "what can I reach from here?" Test the next
 link in the chain. A medium-severity SSRF that reads AWS metadata becomes
 critical when it leaks IAM credentials.
 
+**Chain discipline (stepwise dispatch):** record a multi-step chain ONCE with
+`create_attack_chain`, then execute it stepwise. Only run the next step when
+the prerequisite step's finding/fact exists in the graph — verify with
+`get_state` before each hop. Never fire a chain's steps in parallel: a chain
+like injection → credentials → lateral → privesc depends on each hop's output.
+If a step's prerequisite is missing, the step is blocked, not skipped.
+
 ### 6. Hunt Zero-Days (What has nobody found yet?)
 After exhausting known templates:
 

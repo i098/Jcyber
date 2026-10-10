@@ -31,7 +31,7 @@ from .intake import default_engagement_json, intake_link
 from .learn import distill
 from .normalize import normalize
 from .report import render as render_report
-from .scope import in_scope, violates_no_fuzzing
+from .scope import coverage, in_scope, violates_no_fuzzing
 from .trace import render as render_trace
 from .types import Scope
 
@@ -299,10 +299,14 @@ def intake_target(
 )
 def get_state() -> str:
     """Get the current engagement state: phase, open hypotheses, recent
-    evidence, validated findings, tools already run. Call this to decide
-    what to do next."""
+    evidence, validated findings, tools already run, and which in-scope
+    targets are still untested. Call this to decide what to do next."""
     graph = _require_graph()
     state = graph.project_state(_state.engagement_id)
+    if isinstance(state, dict) and _state.scope is not None:
+        # Coverage: the planner's 'what is untested' signal (ARTEX-style).
+        targets = graph.evidence_targets(_state.engagement_id)
+        state["coverage"] = coverage(_state.scope, targets)
     return json.dumps(state, indent=2)
 
 

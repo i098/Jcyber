@@ -189,6 +189,16 @@ class MemgraphStore:
             ).single()
         return rec is not None and int(rec["n"]) > 0
 
+    def evidence_targets(self, engagement_id: str) -> list[str]:
+        """Distinct evidence target strings -- feeds the coverage view."""
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (e:Evidence {engagement_id: $eid}) "
+                "RETURN collect(DISTINCT e.target) AS targets",
+                eid=engagement_id,
+            ).single()
+        return [str(t) for t in rec["targets"]] if rec else []
+
     def apply_verdict(
         self, engagement_id: str, hypothesis_id: str, verdict: str, support: float
     ) -> None:

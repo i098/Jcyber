@@ -46,6 +46,9 @@ class FakeGraph:
         self.evidence.append(ev)
         self._seen.add(ev.sha256)
 
+    def evidence_targets(self, engagement_id: str) -> list[str]:
+        return [ev.target for ev in self.evidence]
+
     def seen_sha256(self, engagement_id: str, sha256: str) -> bool:
         return sha256 in self._seen
 

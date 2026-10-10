@@ -3,7 +3,7 @@ tests: out-of-scope must win every conflict."""
 
 from __future__ import annotations
 
-from jcyber.scope import in_scope, violates_no_fuzzing
+from jcyber.scope import coverage, in_scope, violates_no_fuzzing
 from jcyber.types import Scope
 
 
@@ -52,3 +52,27 @@ def test_out_of_scope_path_blocks_case_and_slash_variants(scope: Scope) -> None:
 def test_sibling_path_not_over_blocked(scope: Scope) -> None:
     # /payments is a distinct segment, not covered by the /pay/ carve-out.
     assert in_scope("https://acme-lab.example/payments", scope)
+
+
+def test_coverage_reports_untested(scope: Scope) -> None:
+    """Coverage is the planner's gap signal: items with no evidence show
+    as uncovered."""
+    cov = coverage(scope, ["https://acme-lab.example/"])
+    assert cov["in_scope_count"] == 4
+    # apex evidence covers the host item and the *.prefix (apex == base,
+    # same matching as in_scope) but not the /api/ path or the IP range
+    assert cov["covered"] == ["acme-lab.example", "*.acme-lab.example"]
+    assert cov["uncovered"] == ["acme-lab.example/api/", "203.0.113.0/24"]
+
+
+def test_coverage_empty_evidence_all_uncovered(scope: Scope) -> None:
+    cov = coverage(scope, [])
+    assert cov["covered"] == []
+    assert len(cov["uncovered"]) == 4
+
+
+def test_coverage_staging_scan_covers_prefix_but_not_out_of_scope(scope: Scope) -> None:
+    # out-of-scope items are not tracked -- only in_scope drives coverage
+    cov = coverage(scope, ["https://sub.acme-lab.example/"])
+    assert "*.acme-lab.example" in cov["covered"]
+    assert cov["in_scope_count"] == 4

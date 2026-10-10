@@ -30,7 +30,7 @@ from jcyber.mcp_server import (
     retire_hypothesis,
     score_finding,
 )
-from jcyber.types import Scope, ScopeItem
+from jcyber.types import Evidence, Scope, ScopeItem
 from tests.fakes import FakeGraph, FakeHands, FakeMemory
 
 # ---------------------------------------------------------------------------
@@ -150,6 +150,29 @@ def test_get_state():
     _wire_fakes()
     result = json.loads(get_state())
     assert "phase" in result
+
+
+def test_get_state_includes_coverage():
+    """get_state carries the coverage gap signal when scope is loaded."""
+    graph = FakeGraph()
+    graph.evidence.append(
+        Evidence(
+            engagement_id="test-eng",
+            id="E-001",
+            tool="httpx_probe",
+            target="https://example.com/",
+            ts="2026-10-10T00:00:00Z",
+            summary="alive",
+            sha256="0" * 64,
+            raw_path="/tmp/e1.json",
+        )
+    )
+    _wire_fakes(graph=graph)
+    _set_scope()
+    result = json.loads(get_state())
+    assert result["coverage"]["in_scope_count"] == 1
+    assert result["coverage"]["covered"] == ["example.com"]
+    assert result["coverage"]["uncovered"] == []
 
 
 def test_render_findings_report():

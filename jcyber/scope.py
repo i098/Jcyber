@@ -9,6 +9,7 @@ segment boundaries, so a 'Do Not Test' carve-out for /pay/ also blocks /pay,
 from __future__ import annotations
 
 import ipaddress
+from typing import Any
 from urllib.parse import urlsplit
 
 from .types import Scope, ScopeItem
@@ -55,3 +56,19 @@ def in_scope(target: str, scope: Scope) -> bool:
 def violates_no_fuzzing(target: str, scope: Scope) -> bool:
     _, path = _parse(target)
     return any(_under(path, p.lower()) for p in scope.no_fuzzing_on)
+
+
+def coverage(scope: Scope, evidence_targets: list[str]) -> dict[str, Any]:
+    """Which in-scope items have evidence against them. Pure function of the
+    evidence targets seen so far -- the planner's 'what is untested' signal."""
+    hosts_paths = [_parse(t) for t in evidence_targets if _parse(t)[0]]
+    covered: list[str] = []
+    uncovered: list[str] = []
+    for item in scope.in_scope:
+        hit = any(_matches(host, path, item) for host, path in hosts_paths)
+        (covered if hit else uncovered).append(item.value)
+    return {
+        "in_scope_count": len(scope.in_scope),
+        "covered": covered,
+        "uncovered": uncovered,
+    }

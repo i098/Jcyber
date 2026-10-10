@@ -1,7 +1,7 @@
 """Decision trace: a readable audit of the :Decision log for an engagement.
 Pure function of GraphStore.decision_log output - the audit lives in the graph
 (PLAN.md section 7), this just renders it so an operator can see, per
-iteration, what Jev chose, how confident it was, and how the gate ruled."""
+iteration, what was decided and how the gate ruled."""
 
 from __future__ import annotations
 

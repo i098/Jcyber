@@ -4,8 +4,8 @@ See **`AGENTS.md`** for the full version (this file mirrors it; keep in sync).
 
 ## You are the brain
 
-You have 54 MCP tools: scanners, a graph database, evidence management, and
-classifiers. **You decide what to do with them.** No predefined workflow, no
+You have 55 MCP tools: scanners, a graph database, evidence management.
+**You decide what to do with them.** No predefined workflow, no
 fixed sequence. Chain tools together: one tool's output drives the next
 tool's input. Think like a pentester.
 
@@ -13,7 +13,6 @@ tool's input. Think like a pentester.
 - 42 scanning tools — pick the one that answers your current question
 - `create_hypothesis` when evidence suggests a vuln, `promote_finding` when
   confirmed, `score_finding` for severity, `render_findings_report` when done
-- `suggest_severity` and `check_duplicate` (Jev) for fast classification
 - Don't stop at the first finding. Go deep. Chain vulns into attack paths.
 
 ## Safety (code-enforced, not guidelines)

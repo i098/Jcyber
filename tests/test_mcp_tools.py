@@ -13,10 +13,8 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 import jcyber.mcp_server as _mod
-from jcyber.clients.jev import DuplicateResult, SeverityResult
 from jcyber.mcp_server import (
     _state,
-    check_duplicate,
     commit_learnings,
     confirm_difference,
     create_attack_chain,
@@ -31,7 +29,6 @@ from jcyber.mcp_server import (
     render_findings_report,
     retire_hypothesis,
     score_finding,
-    suggest_severity,
 )
 from jcyber.types import Scope, ScopeItem
 from tests.fakes import FakeGraph, FakeHands, FakeMemory
@@ -292,48 +289,6 @@ def test_intake_target():
     assert result["engagement_id"] == "acme-lab-example"
     assert result["target"] == "acme-lab.example"
     assert result["status"] == "active"
-
-
-# ---------------------------------------------------------------------------
-# Jev classifier tools — monkeypatch _get_jev
-# ---------------------------------------------------------------------------
-
-
-class _FakeJev:
-    """Minimal stand-in for JevClassifier."""
-
-    def severity(self, title: str, evidence_summary: str) -> SeverityResult:
-        return SeverityResult(severity="high", score=3.0, confidence=0.95)
-
-    def check_duplicate(self, new_summary: str, existing_summaries: list[str]) -> DuplicateResult:
-        return DuplicateResult(duplicate_probability=0.85)
-
-
-def test_suggest_severity(monkeypatch: pytest.MonkeyPatch) -> None:
-    _wire_fakes()
-    monkeypatch.setattr(_mod, "_jev", _FakeJev())
-    result = json.loads(suggest_severity("F-001", "XSS in search", "reflected input"))
-    assert result["suggested_severity"] == "high"
-    assert result["finding_id"] == "F-001"
-
-
-def test_check_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:
-    _wire_fakes(
-        graph=FakeGraph(
-            projection={
-                "phase": "recon",
-                "open_hypotheses": [],
-                "validated_findings": [],
-                "recent_evidence": [{"summary": "port 22 open"}],
-                "tools_run": [],
-                "unscored_findings": [],
-            }
-        )
-    )
-    monkeypatch.setattr(_mod, "_jev", _FakeJev())
-    result = json.loads(check_duplicate("port 22 open on target"))
-    assert result["is_duplicate"] is True
-    assert result["compared_against"] == 1
 
 
 # ---------------------------------------------------------------------------

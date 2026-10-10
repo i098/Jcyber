@@ -1,7 +1,7 @@
 # pyright: reportPrivateUsage=false
 """Preflight service checks — connect_backends must probe each service with
 real network I/O and block when any is unreachable.  Also covers .env loading
-(the root cause of the original "missing TYPESAFE_API_KEY" report)."""
+(the root cause of the original missing-env report)."""
 
 from __future__ import annotations
 
@@ -36,7 +36,6 @@ _FULL_ENV = {
     "CAIDO_PROXY": "127.0.0.1:8889",
     "CAIDO_API_URL": "http://127.0.0.1:8080",
     "CAIDO_API_TOKEN": "tok",
-    "TYPESAFE_API_KEY": "key",
 }
 
 
@@ -161,7 +160,7 @@ def test_caido_api_ping_fails_triggers_prompt():
 def test_missing_env_vars_trigger_prompt():
     from jcyber.mcp_server import connect_backends
 
-    env = {k: v for k, v in _FULL_ENV.items() if k not in ("TYPESAFE_API_KEY", "JCYBER_MEMORY_URL")}
+    env = {k: v for k, v in _FULL_ENV.items() if k not in ("JCYBER_MEMORY_URL",)}
 
     with (
         patch.dict(os.environ, env, clear=True),
@@ -174,7 +173,6 @@ def test_missing_env_vars_trigger_prompt():
         connect_backends()
         mock_prompt.assert_called_once()
         errors = mock_prompt.call_args[0][0]
-        assert any("TYPESAFE_API_KEY" in e for e in errors)
         assert any("JCYBER_MEMORY_URL" in e for e in errors)
 
 

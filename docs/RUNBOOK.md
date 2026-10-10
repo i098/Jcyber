@@ -95,7 +95,6 @@ through MCP tool calls.
 | `CAIDO_PROXY` | `127.0.0.1:8889` | Caido proxy listener (TCP health-checked) |
 | `CAIDO_API_URL` | `http://127.0.0.1:8080` | Caido instance GraphQL API |
 | `CAIDO_API_TOKEN` | (none) | Caido access token (Bearer) for instance API |
-| `TYPESAFE_API_KEY` | (none) | TypeSafe API key for Jev classifiers |
 
 All secrets can live in `.env` (auto-loaded by `python-dotenv` at startup).
 

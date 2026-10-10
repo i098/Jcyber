@@ -15,10 +15,7 @@ import re
 import socket
 import sys
 import time
-from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from .clients.jev import JevClassifier
+from typing import Any, cast
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -923,98 +920,6 @@ def commit_learnings() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Jev classifier tools — optional accelerators, never in the control path
-# ---------------------------------------------------------------------------
-
-_jev: JevClassifier | None = None
-
-
-def _get_jev() -> JevClassifier:
-    global _jev
-    if _jev is None:
-        try:
-            from .clients.jev import JevClassifier as _JC
-
-            _jev = _JC.from_env()
-        except Exception as e:
-            raise ToolError(f"Jev unavailable (set TYPESAFE_API_KEY): {e}") from e
-    return _jev
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(
-        read_only_hint=True,
-        destructive_hint=False,
-        idempotent_hint=True,
-        open_world_hint=True,
-    )
-)
-def suggest_severity(finding_id: str, title: str, evidence_summary: str) -> str:
-    """Fast severity classification for a finding. Returns a suggested
-    severity level (none/low/medium/high/critical) with confidence.
-
-    This is a Jev gut-check — the agent can use it as input to score_finding
-    or override it entirely. Optional accelerator.
-
-    finding_id: the F-### id
-    title: finding title
-    evidence_summary: brief description of what was found
-    """
-    jev = _get_jev()
-    result = jev.severity(title, evidence_summary)
-    return json.dumps(
-        {
-            "finding_id": finding_id,
-            "suggested_severity": result.severity,
-            "score": round(result.score, 3),
-            "confidence": round(result.confidence, 3),
-        }
-    )
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(
-        read_only_hint=True,
-        destructive_hint=False,
-        idempotent_hint=True,
-        open_world_hint=True,
-    )
-)
-def check_duplicate(new_evidence_summary: str) -> str:
-    """Check if new evidence is substantially similar to existing evidence
-    already in the graph. Returns a probability (0-1).
-
-    Use before creating a hypothesis to avoid duplicating work.
-    Optional accelerator — smarter than sha256 exact match, cheaper than
-    the agent comparing all evidence summaries.
-
-    new_evidence_summary: summary of the evidence to check
-    """
-    graph = _require_graph()
-    jev = _get_jev()
-    state = graph.project_state(_state.engagement_id)
-    existing: list[str] = []
-    if isinstance(state, dict):
-        recent = state.get("recent_evidence")
-        if isinstance(recent, list):
-            for ev in recent:
-                if isinstance(ev, dict):
-                    s = ev.get("summary")
-                    if isinstance(s, str):
-                        existing.append(s)
-    if not existing:
-        return json.dumps({"duplicate_probability": 0.0, "is_duplicate": False})
-    result = jev.check_duplicate(new_evidence_summary, existing)
-    return json.dumps(
-        {
-            "duplicate_probability": round(result.duplicate_probability, 3),
-            "is_duplicate": result.duplicate_probability >= 0.7,
-            "compared_against": len(existing),
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
 # Startup / connection management
 # ---------------------------------------------------------------------------
 
@@ -1142,11 +1047,6 @@ def _connect_missing_backends() -> None:
                 errors.append(f"Memory @ {memory_url}: {e}")
         elif not _backends_initialized:
             errors.append("JCYBER_MEMORY_URL not set")
-
-    if not _backends_initialized and not os.environ.get("TYPESAFE_API_KEY"):
-        errors.append("TYPESAFE_API_KEY not set")
-    elif os.environ.get("TYPESAFE_API_KEY") and not _backends_initialized:
-        print("[jcyber] ok TYPESAFE_API_KEY present", file=sys.stderr)
 
     if errors:
         _log_degraded(errors)

@@ -39,7 +39,7 @@ recall(engagement)  # engagement: slug + scope.toon (targets, program, accounts)
 ```
 
 Returns a **capped text block** (≤ 2000 chars) injected into the
-`priors` section of every Jev state for the life of the engagement:
+`priors` section of every engagement state for the life of the engagement:
 
 ```
 priors (from long-term memory):

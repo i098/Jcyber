@@ -2,8 +2,8 @@
 
 ## You are the brain
 
-Jcyber gives you 57 MCP tools: scanners, a graph database, evidence
-management, and classifiers. **You decide what to do with them.** There is
+Jcyber gives you 55 MCP tools: scanners, a graph database, evidence
+management. **You decide what to do with them.** There is
 no predefined workflow, no fixed sequence, no script to follow. You have
 everything a pentester has — recon tools, vulnerability scanners, fuzzers,
 exploit frameworks, a replay proxy, and a structured evidence graph — wired
@@ -40,10 +40,6 @@ you have full autonomy.
 - `render_findings_report` — produce the final report
 - `get_decision_trace` — audit trail of what happened
 - `recall_lessons` / `commit_learnings` — cross-engagement memory
-
-**2 Jev classifiers** (optional, 8.7x faster than reasoning it yourself):
-- `suggest_severity` — fast severity classification
-- `check_duplicate` — is this evidence a repeat of something you already have?
 
 ## How to think about it
 
@@ -121,9 +117,8 @@ might chain into a critical data breach.
 
 | Path | What |
 |------|------|
-| `jcyber/mcp_server.py` | MCP server, 57 tools |
+| `jcyber/mcp_server.py` | MCP server, 55 tools |
 | `jcyber/SKILL.md` | Pentesting methodology |
-| `jcyber/clients/jev.py` | Jev classifiers (severity, duplicate) |
 | `jcyber/scope.py` | Scope gate |
 | `jcyber/clients/` | HexStrike, Memgraph, TencentDB, Caido adapters |
 | `schema/` | Graph schema, TOON shapes, memory interface |

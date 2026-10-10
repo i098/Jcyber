@@ -1,7 +1,7 @@
 # Setup Guide
 
 Get Jcyber running in under 5 minutes. By the end you'll have an agent
-driving a pentest through 57 MCP tools with scope enforcement.
+driving a pentest through 55 MCP tools with scope enforcement.
 
 ## Prerequisites
 
@@ -14,11 +14,6 @@ driving a pentest through 57 MCP tools with scope enforcement.
 ```
 cd Jcyber
 uv sync
-```
-
-For Jev classifiers (optional, 8.7x faster severity/duplicate checks):
-```
-uv sync --extra jev
 ```
 
 ## Step 2: Start the backends
@@ -45,10 +40,8 @@ uv run python -m jcyber.clients.memgraph --smoke   # Memgraph -> ok
 
 Create `.env` in the Jcyber directory (gitignored):
 ```
-TYPESAFE_API_KEY=your_key_here
+CAIDO_API_TOKEN=your_token_here
 ```
-
-Only needed if you installed the `jev` extra. The MCP server works without it.
 
 ## Step 4: Add to your agent
 
@@ -69,7 +62,7 @@ Only needed if you installed the `jev` extra. The MCP server works without it.
 Reload MCP servers (`/mcp reload` in OMP).
 
 **Other MCP clients:** Point your client at `uv run python -m jcyber serve`
-over stdio. The server exposes 57 tools.
+over stdio. The server exposes 55 tools.
 
 ## Step 5: Start a session
 
@@ -120,8 +113,6 @@ running.
 **Tools return `[tool_error]`:** HexStrike is running but the specific tool
 binary isn't installed (e.g., nmap, nuclei). Install the tool on the host
 machine.
-
-**Jev tools fail:** Set `TYPESAFE_API_KEY` in `.env` or your environment.
 
 **Scope blocks everything:** Check your target matches the engagement scope.
 Run `python -m jcyber intake <url>` to see what scope is generated.

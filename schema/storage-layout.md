@@ -15,8 +15,7 @@ engagements/<slug>/
   scope.toon                # AUTHORITATIVE scope. Operator-owned. Never written
                             # by the framework. Mirrored to :Scope nodes.
   engagement.toon           # target, program, rules of engagement, rate
-                            # limits, timebox, Jev model pin, gate thresholds.
-                            # Created at intake; effectively immutable.
+                            # limits, timebox, gate thresholds.
   evidence/
     raw/                    # immutable tool output, named <sha256>.<ext>
     screenshots/            # browser-agent captures, <E-id>-<seq>.png
@@ -33,7 +32,7 @@ engagements/<slug>/
     scenario.md             # L2 scenario update (phase, done, abandoned+why)
     status.toon             # last distiller run, uncommitted count, errors
   state/
-    snapshot.toon           # last projected Jev state (debug/replay)
+    snapshot.toon           # last projected engagement state (debug/replay)
     decisions.jsonl         # Decision-node export (audit, human-browsable)
 ```
 
@@ -101,8 +100,7 @@ constraints:
 Gate rule (deterministic layer): an action is **in-scope** iff its target
 (host/port/path) matches at least one `in_scope` item AND matches no
 `out_of_scope` item AND satisfies `constraints`. Out-of-scope always wins on
-conflict. The Jev `scope_safe` noul is a *second* check on top — never a
-substitute.
+conflict.
 
 `constraints.severity` is the report-triage floor, vocabulary aligned to
 the G3 severity legend in `config/decision-catalog.md`

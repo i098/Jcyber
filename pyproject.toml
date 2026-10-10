@@ -23,9 +23,6 @@ dependencies = [
     "python-dotenv>=1.0", # Load .env (secrets live there, not in process env)
 ]
 
-[project.optional-dependencies]
-jev = ["typesafe-sdk"]  # Jev classifiers (triage, severity, duplicate, tool hint)
-
 [project.urls]
 Repository = "https://github.com/i098/Jcyber"
 
@@ -36,7 +33,6 @@ jcyber = "jcyber.__main__:main"
 dev = [
     "ruff>=0.6",
     "pytest>=8",
-    "typesafe-sdk",    # type-checks jcyber/clients/jev.py
     "sentrux>=0.1.6",
     "pyrefly>=1.3.2",
 ]

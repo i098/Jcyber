@@ -1,7 +1,6 @@
 """Deterministic scope gate (layer 1). No model, non-jailbreakable string
 matching against scope.toon. Out-of-scope always wins. This layer can never
-be argued around -- the Jev scope_safe noul is a second check on top, never a
-substitute (AGENTS.md invariant #3).
+be argued around (AGENTS.md invariant #2).
 
 Matching is deliberately conservative: paths are lowercased and matched on
 segment boundaries, so a 'Do Not Test' carve-out for /pay/ also blocks /pay,

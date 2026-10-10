@@ -3,7 +3,7 @@ default: a link with no scope items given means a full scan of the target
 (apex host plus every subdomain) with a critical-only findings focus.
 
 Only the scope is synthesized here. The operator still authors
-``engagement.toon`` (gates, verdicts, Jev pin, budgets) -- the code holds
+``engagement.toon`` (gates, verdicts, budgets) -- the code holds
 no gate values (AGENTS.md invariant #2). The emitted ``scope.toon`` is
 always encoder output (invariant #1)."""
 

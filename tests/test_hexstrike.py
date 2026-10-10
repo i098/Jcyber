@@ -100,16 +100,12 @@ def test_call_timeout_returns_error() -> None:
 
 
 def test_fetch_available_tools_parses_health() -> None:
-    """fetch_available_tools parses the /health response."""
+    """fetch_available_tools parses the /health tools_status map."""
     health_data = {
-        "categories": {
-            "recon": {
-                "tools": {
-                    "nmap": {"installed": True},
-                    "subfinder": {"installed": True},
-                    "wafw00f": {"installed": False},
-                }
-            }
+        "tools_status": {
+            "nmap": True,
+            "subfinder": True,
+            "wafw00f": False,
         }
     }
 
@@ -129,13 +125,9 @@ def test_fetch_available_tools_parses_health() -> None:
 def test_is_tool_available() -> None:
     """is_tool_available maps MCP name to slug and checks availability."""
     health_data = {
-        "categories": {
-            "recon": {
-                "tools": {
-                    "nmap": {"installed": True},
-                    "subfinder": {"installed": True},
-                }
-            }
+        "tools_status": {
+            "nmap": True,
+            "subfinder": True,
         }
     }
 
@@ -147,7 +139,7 @@ def test_is_tool_available() -> None:
     client = httpx.Client(base_url="http://127.0.0.1:8888", transport=httpx.MockTransport(handler))
     hands = HexStrikeHands(client)
     assert hands.is_tool_available("nmap_scan") is True
-    assert hands.is_tool_available("subfinder_scan") is True
+    assert hands.is_tool_available("nmap") is True
     assert hands.is_tool_available("wafw00f_scan") is False
 
 

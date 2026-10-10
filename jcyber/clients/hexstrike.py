@@ -15,6 +15,114 @@ import httpx
 
 from jcyber.types import JSON
 
+# HexStrike's reachable surface, grouped by its own categories. Every name
+# below has a POST /api/tools/<name> route on hexstrike_server.py master
+# (verified 2026-10-10 against the route decorators; tools in /health
+# tools_status without a route 404 and are NOT listed). /health reports
+# which of these are actually installed on the box.
+HEXSTRIKE_CATEGORIES: dict[str, list[str]] = {
+    "essential": [
+        "dirb",
+        "gobuster",
+        "hashcat",
+        "hydra",
+        "john",
+        "nikto",
+        "nmap",
+        "nmap-advanced",
+        "sqlmap",
+    ],
+    "network": [
+        "arp-scan",
+        "autorecon",
+        "enum4linux",
+        "enum4linux-ng",
+        "masscan",
+        "nbtscan",
+        "netexec",
+        "responder",
+        "rpcclient",
+        "rustscan",
+    ],
+    "web_security": [
+        "arjun",
+        "browser-agent",
+        "burpsuite-alternative",
+        "dalfox",
+        "dirsearch",
+        "dotdotpwn",
+        "feroxbuster",
+        "ffuf",
+        "gau",
+        "hakrawler",
+        "httpx",
+        "jaeles",
+        "katana",
+        "paramspider",
+        "wafw00f",
+        "waybackurls",
+        "wfuzz",
+        "x8",
+        "xsser",
+        "zap",
+    ],
+    "vuln_scanning": ["nuclei", "wpscan"],
+    "binary": [
+        "angr",
+        "binwalk",
+        "checksec",
+        "gdb",
+        "gdb-peda",
+        "ghidra",
+        "libc-database",
+        "objdump",
+        "one-gadget",
+        "pwninit",
+        "radare2",
+        "ropgadget",
+        "ropper",
+    ],
+    "forensics": [
+        "exiftool",
+        "foremost",
+        "hashpump",
+        "steghide",
+        "strings",
+        "volatility",
+        "volatility3",
+        "xxd",
+    ],
+    "cloud": [
+        "cloudmapper",
+        "kube-bench",
+        "kube-hunter",
+        "pacu",
+        "prowler",
+        "scout-suite",
+        "trivy",
+    ],
+    "osint": ["amass", "dnsenum", "fierce", "subfinder"],
+    "exploitation": ["metasploit", "metasploit-multi", "searchsploit"],
+    "api": ["anew", "qsreplace", "uro"],
+    "wireless": ["tcpdump"],
+    "additional": [
+        "api_fuzzer",
+        "api_schema_analyzer",
+        "checkov",
+        "clair",
+        "docker-bench-security",
+        "evil-winrm",
+        "falco",
+        "graphql_scanner",
+        "http-framework",
+        "jwt_analyzer",
+        "msfvenom",
+        "pwntools",
+        "smbmap",
+        "terrascan",
+    ],
+}
+
 # Per-tool timeout overrides (seconds). Tools not listed use the client
 # default (300s). Recon behind CDN/WAF needs shorter timeouts; exploit
 # tools need longer ones.
@@ -48,7 +156,17 @@ _TOOL_TIMEOUT: dict[str, float] = {
     # quick checks
     "jwt_analyzer": 30,
     "qsreplace": 15,
-    "http_repeater": 30,
+    # raw HexStrike names (category dispatchers pass these)
+    "nmap": 180,
+    "ffuf": 180,
+    "httpx": 120,
+    "katana": 180,
+    "nuclei": 300,
+    "subfinder": 120,
+    "gobuster": 180,
+    "dirb": 180,
+    "nikto": 180,
+    "sqlmap": 300,
 }
 
 
@@ -135,8 +253,52 @@ _TARGET_PARAM: dict[str, str] = {
     # http-framework reads `url`, not `target` (verified against the live
     # endpoint 2026-10-01: without this remap every http_repeater call 400s)
     "http_repeater": "url",
+    # raw HexStrike names (category dispatchers) — primary params extracted
+    # from hexstrike_server.py route handlers, 2026-10-10
+    "arjun": "url",
+    "dalfox": "url",
+    "dirb": "url",
+    "dirsearch": "url",
+    "feroxbuster": "url",
+    "ffuf": "url",
+    "gobuster": "url",
+    "hakrawler": "url",
+    "jaeles": "url",
+    "katana": "url",
+    "sqlmap": "url",
+    "wfuzz": "url",
+    "wpscan": "url",
+    "x8": "url",
+    "xsser": "url",
+    "amass": "domain",
+    "dnsenum": "domain",
+    "fierce": "domain",
+    "gau": "domain",
+    "paramspider": "domain",
+    "subfinder": "domain",
+    "waybackurls": "domain",
+    "angr": "binary",
+    "checksec": "binary",
+    "gdb": "binary",
+    "gdb-peda": "binary",
+    "ghidra": "binary",
+    "objdump": "binary",
+    "pwninit": "binary",
+    "radare2": "binary",
+    "ropgadget": "binary",
+    "ropper": "binary",
+    "binwalk": "file_path",
+    "exiftool": "file_path",
+    "strings": "file_path",
+    "xxd": "file_path",
+    "hashcat": "hash_file",
+    "john": "hash_file",
+    "volatility": "memory_file",
+    "volatility3": "memory_file",
+    "api_fuzzer": "base_url",
+    "graphql_scanner": "endpoint",
+    "api_schema_analyzer": "schema_url",
 }
-
 # httpx endpoint builds `httpx -l {target}` treating target as a file path.
 # Workaround: pipe target via additional_args with -u flag instead.
 _HTTPX_TOOL = "httpx_probe"
@@ -168,27 +330,19 @@ def _looks_like_html(text: str) -> bool:
 
 
 def _parse_health_tools(text: str) -> frozenset[str]:
-    """Extract installed tool names from HexStrike /health JSON response."""
+    """Installed tool names from HexStrike /health. Current HexStrike reports a
+    flat tools_status: {name: installed_bool} (the old nested categories
+    shape is gone)."""
     try:
         data = json.loads(text)
     except (ValueError, TypeError):
         return frozenset()
     if not isinstance(data, dict):
         return frozenset()
-    cats = data.get("categories")  # type: ignore[union-attr]
-    if not isinstance(cats, dict):
+    status = data.get("tools_status")
+    if not isinstance(status, dict):
         return frozenset()
-    available: set[str] = set()
-    for cat_val in cats.values():  # type: ignore[union-attr]
-        if not isinstance(cat_val, dict):
-            continue
-        raw_tools = cat_val.get("tools")  # type: ignore[union-attr]
-        if not isinstance(raw_tools, dict):
-            continue
-        for tname, tinfo in raw_tools.items():  # type: ignore[union-attr]
-            if isinstance(tinfo, dict) and tinfo.get("installed"):  # type: ignore[union-attr]
-                available.add(str(tname))  # type: ignore[arg-type]
-    return frozenset(available)
+    return frozenset(str(k) for k, v in status.items() if v)
 
 
 class HexStrikeHands:
@@ -243,12 +397,14 @@ class HexStrikeHands:
         slug = _TOOL_ENDPOINT.get(tool, tool)
         p = dict(params)
 
-        # Remap "target" to the param name each HexStrike endpoint expects
+        # Remap "target" to the param name each HexStrike endpoint expects.
+        # Explicit caller params win: a params object that already carries the
+        # real key (e.g. metasploit's module) keeps it untouched.
         if "target" in p:
             rename = _TARGET_PARAM.get(tool)
-            if rename:
+            if rename and rename not in p:
                 p[rename] = p.pop("target")
-            elif tool == _HTTPX_TOOL:
+            elif tool in (_HTTPX_TOOL, "httpx"):
                 target = p["target"]
                 p["target"] = "/dev/null"
                 existing = str(p.get("additional_args", ""))

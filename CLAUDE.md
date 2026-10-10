@@ -10,7 +10,7 @@ fixed sequence. Chain tools together: one tool's output drives the next
 tool's input. Think like a pentester.
 
 - `intake_target` to start, `get_state` to see what you know
-- 42 scanning tools — pick the one that answers your current question
+- 12 category dispatchers (scan_essential, scan_web_security, ...) — pick the member that answers your current question
 - `create_hypothesis` when evidence suggests a vuln, `promote_finding` when
   confirmed, `score_finding` for severity, `render_findings_report` when done
 - Don't stop at the first finding. Go deep. Chain vulns into attack paths.
@@ -20,7 +20,6 @@ tool's input. Think like a pentester.
 - **Scope gate** on every tool call — out-of-scope rejected before reaching
   any scanner. Non-bypassable.
 - **Exploit tools** (`metasploit_run`, `hydra_attack`, etc.) return a
-  confirmation prompt. Operator must approve.
 - **No free-form commands** — tool params are closed-set. Your text never
   reaches a shell.
 - **Finding lifecycle** — Evidence -> Hypothesis -> Finding -> Validated.
@@ -54,6 +53,6 @@ hypotheses are open, and what tools you've already run.
 
 1. TOON for machine-written config (`.toon` = `@toon-format/cli` output).
 2. Scope gate code-enforced in `mcp_server.py`.
-3. Exploit tools always require operator confirmation.
+3. Exploit tools are annotated destructive and run directly.
 4. HexStrike hands only — never its AI/intelligence endpoints.
 5. TencentDB: recall at intake, commit at close.

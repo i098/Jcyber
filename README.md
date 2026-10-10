@@ -30,7 +30,7 @@ HexStrike  Memgraph    TencentDB      Caido
 
 The agent decides what to scan, when to create hypotheses, and when to
 promote findings. Jcyber enforces safety in code: the scope gate runs
-before every tool call, exploit tools require operator confirmation, and all
+before every tool call, and all
 evidence is normalized into the engagement graph.
 
 ## The systems
@@ -42,10 +42,10 @@ evidence is normalized into the engagement graph.
 | TencentDB | Long-term memory - cross-engagement recall and learning |
 | Caido | Traffic substrate - proxy, request logging, passive plugins |
 
-## MCP tools (55 total)
+## MCP tools (30 total)
 
-- **42 HexStrike scanning tools** - `nmap_scan`, `nuclei_scan`, `sqlmap_scan`, `ffuf_scan`, `httpx_probe`, etc. Each scope-gated.
-- **Verification tool (1)** - `confirm_difference` - 3-gate confirmation: baseline vs attack request, mechanical response diff (status, body, timing). Absorbed from CyberStrike.
+- **12 category dispatchers** - `scan_essential`, `scan_web_security`, `scan_osint`, ... covering all 90 routed HexStrike tools (`nmap`, `nuclei`, `subfinder`, `ffuf`, ...). Each call scope-gated; member list ships in each dispatcher's description, so tools/list stays small.
+- **Verification tools (6)** - `confirm_difference` (3-gate: baseline vs attack, mechanical diff), `http_repeater`, `browser_agent_inspect`, `api_fuzzer`, `graphql_scanner`, `comprehensive_api_audit`
 - **Graph tools (6)** - `create_hypothesis`, `promote_finding` (endpoint-aware duplicate triage), `score_finding`, `retire_hypothesis`, `create_attack_chain`, `get_attack_chains`
 - **Engagement tools (4)** - `intake_target`, `get_state`, `render_findings_report`, `get_decision_trace`
 - **Memory tools (2)** - `recall_lessons`, `commit_learnings`
@@ -125,7 +125,6 @@ Secrets live in `.env` (auto-loaded by `python-dotenv` at startup).
 ## Safety
 
 - **Scope gate** - deterministic string matching against the engagement scope, enforced as a pre-hook on every MCP tool call. Not prompt-bypassable.
-- **Exploit confirmation** - exploit tools (`metasploit_run`, `hydra_attack`, etc.) return a confirmation prompt instead of executing. Operator must approve.
 - **Evidence graph** - all tool output is normalized, sha256-deduped, and stored in Memgraph with full provenance.
 - **Finding lifecycle** - Evidence (E-###) -> Hypothesis (H-###) -> Finding (F-###) -> Validated Finding. No skipping.
 
@@ -143,7 +142,7 @@ python -m jcyber trace <dir>        # render decision trace
 
 ```
 jcyber/
-  mcp_server.py        MCP server with all 55 tools
+  mcp_server.py        MCP server with all 30 tools
   SKILL.md             Agent methodology (the pentesting ladder)
   scope.py             Deterministic scope gate
   normalize.py         Evidence normalization (sha256, summary)
@@ -173,20 +172,9 @@ deploy/                Docker Compose for Memgraph
 ```
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
-uv run pyright
+uv run sentrux check . && uv run pyrefly check jcyber tests
 ```
 
-## Contributing
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Legality
-
-Jcyber assumes **in-scope targets only**. The scope gate is load-bearing,
-not decorative: it is deterministic string matching enforced in code as a
-pre-hook on every MCP tool call. Out-of-scope targets are rejected before
-reaching any scanner. Nothing in this repo grants permission to test any
-system. Authorization is the operator's responsibility.
 
 ## License
 

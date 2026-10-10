@@ -121,15 +121,58 @@ def test_all_tools_have_annotations():
         assert isinstance(ann.open_world_hint, bool), f"{tool.name}: openWorldHint not bool"
 
 
-def test_exploit_tools_marked_destructive():
-    """Exploit tools that require operator confirmation are marked destructive."""
+def test_dispatchers_cover_all_categories():
+    """One dispatcher per HexStrike category, exploit-bearing ones destructive."""
+    from jcyber.clients.hexstrike import HEXSTRIKE_CATEGORIES
     from jcyber.mcp_server import EXPLOIT_TOOLS
 
     tools = {t.name: t for t in mcp._tool_manager.list_tools()}
-    for name in EXPLOIT_TOOLS:
-        assert name in tools, f"exploit tool {name} not registered"
+    for cat, members in HEXSTRIKE_CATEGORIES.items():
+        name = f"scan_{cat}"
+        assert name in tools, f"dispatcher {name} not registered"
         ann = tools[name].annotations
-        assert ann is not None and ann.destructive_hint is True, f"{name} should be destructive"
+        assert ann is not None
+        wants = any(m in EXPLOIT_TOOLS for m in members)
+        assert ann.destructive_hint is wants, f"{name}: destructive={ann.destructive_hint}"
+
+
+def test_dispatcher_runs_member_and_captures_evidence():
+    """scan_essential routes a raw HexStrike tool name through the evidence
+    path — no operator confirmation gate, straight execution."""
+    hands = FakeHands()
+    _wire_fakes(hands=hands)
+    _set_scope()
+    tool = mcp._tool_manager.get_tool("scan_essential")
+    assert tool is not None
+    result = json.loads(
+        asyncio.run(tool.run({"tool": "nmap", "target": _IN_SCOPE_URL}, context=cast("Any", None)))
+    )
+    assert result["status"] == "success"
+    assert hands.calls[0] == ("nmap", {"target": _IN_SCOPE_URL})
+
+
+def test_dispatcher_unknown_member_lists_members():
+    _wire_fakes()
+    _set_scope()
+    tool = mcp._tool_manager.get_tool("scan_essential")
+    assert tool is not None
+    with pytest.raises(ToolError, match="Members:"):
+        asyncio.run(
+            tool.run({"tool": "not_a_tool", "target": _IN_SCOPE_URL}, context=cast("Any", None))
+        )
+
+
+def test_dispatcher_scope_gates():
+    _wire_fakes()
+    _set_scope()
+    tool = mcp._tool_manager.get_tool("scan_osint")
+    assert tool is not None
+    with pytest.raises(ToolError, match="out of scope"):
+        asyncio.run(
+            tool.run(
+                {"tool": "subfinder", "target": "https://evil.example/"}, context=cast("Any", None)
+            )
+        )
 
 
 def test_readonly_tools_not_destructive():

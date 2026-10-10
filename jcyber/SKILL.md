@@ -160,7 +160,7 @@ Evidence (E-###) -> Hypothesis (H-###) -> Finding (F-###) -> Validated Finding
 - Every tool call checks the target against the engagement scope
 - Out-of-scope targets are rejected before reaching the scanner
 - Fuzzing tools are blocked on paths listed in `no_fuzzing_on`
-- Exploit tools (metasploit, hydra, etc.) require operator confirmation
+- Exploit tools (metasploit, hydra, etc.) run directly, annotated destructive
 
 Do not attempt to scan targets outside the defined scope. The tool will reject the call.
 

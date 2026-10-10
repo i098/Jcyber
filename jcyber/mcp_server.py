@@ -3,8 +3,7 @@
 The harness (Claude Code, or any MCP-capable agent) is the reasoning loop.
 Jcyber provides scope-gated tools, graph state, memory, and engagement
 management. Safety is enforced in code: the scope gate runs before every
-HexStrike call, exploit actions require operator confirmation, and all
-evidence is normalized into the engagement graph.
+HexStrike call, and all evidence is normalized into the engagement graph.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
 from .clients.caido import CaidoProxy
-from .clients.hexstrike import HexStrikeHands
+from .clients.hexstrike import HEXSTRIKE_CATEGORIES, HexStrikeHands
 from .clients.memgraph import MemgraphStore
 from .clients.tencentdb import TencentMemory
 from .clients.toon import CliToonCodec
@@ -41,73 +40,35 @@ from .types import Scope
 # ---------------------------------------------------------------------------
 
 TOOL_CATALOG: dict[str, str] = {
-    # recon — passive
-    "subfinder_scan": "Passive subdomain enumeration via multiple sources",
-    "amass_scan": "In-depth subdomain enumeration and mapping",
-    "gau_discovery": "Fetch known URLs from AlienVault, Wayback, Common Crawl",
-    "waybackurls_discovery": "Fetch URLs from the Wayback Machine archive",
-    "paramspider_discovery": "Mine parameters from web archives for a domain",
-    "httpx_probe": "HTTP probe: live hosts, status codes, tech fingerprint, titles",
-    "wafw00f_scan": "Detect web application firewalls",
-    # recon — active
-    "nmap_scan": "Port scan and service/version detection (TCP/UDP)",
-    "rustscan_fast_scan": "Fast port scanner (Rust-based), feeds results to nmap",
-    "masscan_high_speed": "High-speed port scanner for large ranges",
-    "nikto_scan": "Web server vulnerability scanner (CGI, misconfig, headers)",
-    "katana_crawl": "Fast web crawler for endpoint and parameter discovery",
-    "hakrawler_crawl": "Simple fast web crawler for link and endpoint discovery",
-    "gobuster_scan": "Directory/file/DNS/vhost brute-force",
-    "dirb_scan": "Web content scanner (directory brute-force)",
-    "ffuf_scan": "Web fuzzer — directories, parameters, vhosts, custom positions",
-    "feroxbuster_scan": "Recursive content discovery (Rust-based web fuzzer)",
-    "http_framework_test": "HTTP method and framework detection",
-    # probing
-    "nuclei_scan": "Template-based vulnerability scanner (9000+ templates)",
-    "sqlmap_scan": "SQL injection detection and exploitation",
-    "wpscan_analyze": "WordPress vulnerability scanner",
-    "dalfox_xss_scan": "XSS vulnerability scanner and parameter analysis",
-    "xsser_scan": "Cross-site scripting detection framework",
-    "jaeles_vulnerability_scan": "Customizable vulnerability scanner",
-    "jwt_analyzer": "JWT token analysis (signature, claims, known weaknesses)",
+    # Jcyber verification tools — individually registered. Everything else is
+    # reached through the category dispatchers built from HEXSTRIKE_CATEGORIES.
+    "http_repeater": "Replay and modify HTTP requests (like Burp Repeater)",
+    "browser_agent_inspect": "Browser-based inspection (JS-rendered content, DOM)",
     "api_fuzzer": "API endpoint fuzzing (REST, GraphQL)",
     "graphql_scanner": "GraphQL introspection, injection, and DoS testing",
     "comprehensive_api_audit": "Full API security audit (auth, IDOR, injection, rate-limit)",
-    "arjun_scan": "HTTP parameter discovery",
-    "qsreplace": "Query string parameter replacement for testing",
-    "http_repeater": "Replay and modify HTTP requests (like Burp Repeater)",
-    "browser_agent_inspect": "Browser-based inspection (JS-rendered content, DOM)",
-    "netexec_scan": "Network service enumeration (SMB, LDAP, WinRM, etc.)",
-    "smbmap_scan": "SMB share enumeration and access testing",
-    "enum4linux_scan": "Windows/Samba enumeration (users, shares, policies)",
-    # fuzzing
-    "wfuzz_scan": "Web fuzzer for parameters, headers, and paths",
-    # verify
-    # (http_repeater, browser_agent_inspect, nuclei_scan already listed)
-    # exploit (require operator confirmation)
-    "metasploit_run": "Metasploit module execution (REQUIRES OPERATOR CONFIRMATION)",
-    "pwntools_exploit": "Custom exploit via pwntools (REQUIRES OPERATOR CONFIRMATION)",
-    "hydra_attack": "Network login brute-force (REQUIRES OPERATOR CONFIRMATION)",
-    "hashcat_crack": "Password hash cracking (REQUIRES OPERATOR CONFIRMATION)",
-    "john_crack": "John the Ripper hash cracking (REQUIRES OPERATOR CONFIRMATION)",
-    "responder_credential_harvest": (
-        "LLMNR/NBT-NS credential harvesting (REQUIRES OPERATOR CONFIRMATION)"
-    ),
 }
 
-# Exploit tools — require explicit operator confirmation before execution
+# Exploit-adjacent HexStrike tools — run directly (operator stripped the
+# confirmation gate) but still annotated destructive in the dispatcher.
 EXPLOIT_TOOLS = frozenset(
     {
-        "metasploit_run",
-        "pwntools_exploit",
-        "hydra_attack",
-        "hashcat_crack",
-        "john_crack",
-        "responder_credential_harvest",
+        "metasploit",
+        "msfconsole",
+        "msfvenom",
+        "hydra",
+        "hashcat",
+        "john",
+        "medusa",
+        "patator",
+        "responder",
+        "evil-winrm",
+        "pwntools",
     }
 )
 
 # Fuzzing tools — blocked on paths in no_fuzzing_on
-FUZZING_TOOLS = frozenset({"ffuf_scan", "wfuzz_scan", "api_fuzzer", "jaeles_vulnerability_scan"})
+FUZZING_TOOLS = frozenset({"ffuf", "wfuzz", "xsser", "dotdotpwn", "dirsearch", "feroxbuster"})
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +413,6 @@ def _execute_capture(tool_name: str, target: str, extra: dict[str, Any]) -> dict
 def _make_hexstrike_tool(tool_name: str, description: str):
     """Factory: create a scope-gated MCP tool that calls HexStrike."""
 
-    is_exploit = tool_name in EXPLOIT_TOOLS
     is_fuzzing = tool_name in FUZZING_TOOLS
 
     async def tool_fn(target: str, params: str = "{}") -> str:
@@ -461,20 +421,6 @@ def _make_hexstrike_tool(tool_name: str, description: str):
 
         if is_fuzzing:
             _check_fuzzing(target)
-
-        if is_exploit:
-            return json.dumps(
-                {
-                    "status": "CONFIRMATION_REQUIRED",
-                    "tool": tool_name,
-                    "target": target,
-                    "message": (
-                        f"Exploit tool {tool_name!r} requires explicit operator confirmation. "
-                        "This is a safety constraint that cannot be bypassed. "
-                        "Ask the operator to confirm before proceeding."
-                    ),
-                }
-            )
 
         extra: dict[str, Any] = json.loads(params) if params and params != "{}" else {}
         return json.dumps(_execute_capture(tool_name, target, extra))
@@ -489,19 +435,60 @@ def _make_hexstrike_tool(tool_name: str, description: str):
     return tool_fn
 
 
-# Register all HexStrike tools with annotations
-for _name, _desc in TOOL_CATALOG.items():
-    _is_exploit = _name in EXPLOIT_TOOLS
-    _annotations = ToolAnnotations(
-        read_only_hint=False,
-        destructive_hint=_is_exploit,
-        idempotent_hint=False,
-        open_world_hint=True,
+def _make_category_dispatcher(category: str, members: list[str]):
+    """Factory: one MCP tool per HexStrike category. The member list ships in
+    the docstring (not as N separate tools), so tools/list stays small while
+    every HexStrike tool stays reachable. Exploit members run directly —
+    the operator-confirmation gate was stripped — but the category is
+    annotated destructive."""
+
+    async def tool_fn(tool: str, target: str, params: str = "{}") -> str:
+        if tool not in members:
+            raise ToolError(f"unknown tool {tool!r} for category {category!r}. Members: {members}")
+        # Scope gate -- deterministic, non-jailbreakable
+        _check_scope(target)
+
+        if tool in FUZZING_TOOLS:
+            _check_fuzzing(target)
+
+        extra: dict[str, Any] = json.loads(params) if params and params != "{}" else {}
+        return json.dumps(_execute_capture(tool, target, extra))
+
+    tool_fn.__name__ = f"scan_{category}"
+    tool_fn.__doc__ = (
+        f"Run any of HexStrike's {category} tools against a target.\n"
+        f"Members: {', '.join(members)}\n\n"
+        f"tool: one of the members above.\n"
+        f"target: the host, URL, or IP to scan (must be in scope).\n"
+        f"params: JSON object of additional tool-specific parameters (optional)."
     )
+    return tool_fn
+
+
+# Verification tools — individually registered (process tools, not scanners)
+for _name, _desc in TOOL_CATALOG.items():
     mcp.add_tool(
         _make_hexstrike_tool(_name, _desc),
         name=_name,
-        annotations=_annotations,
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=False,
+            open_world_hint=True,
+        ),
+    )
+
+# Category dispatchers — every HexStrike tool, grouped so tools/list stays small
+for _cat, _members in HEXSTRIKE_CATEGORIES.items():
+    mcp.add_tool(
+        _make_category_dispatcher(_cat, _members),
+        name=f"scan_{_cat}",
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=any(m in EXPLOIT_TOOLS for m in _members),
+            idempotent_hint=False,
+            open_world_hint=True,
+        ),
     )
 
 

@@ -1,7 +1,7 @@
 # Operator runbook
 
 Jcyber runs only against **in-scope targets** (see the
-[legal note](FAQ.md#legal-note)). The scope gate is enforced in code as a
+scope gate is enforced in code as a
 pre-hook on every MCP tool call.
 
 ## Prerequisites

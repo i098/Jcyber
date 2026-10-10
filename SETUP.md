@@ -1,7 +1,7 @@
 # Setup Guide
 
 Get Jcyber running in under 5 minutes. By the end you'll have an agent
-driving a pentest through 55 MCP tools with scope enforcement.
+driving a pentest through 30 MCP tools with scope enforcement.
 
 ## Prerequisites
 
@@ -84,7 +84,7 @@ The agent will:
 - Render a report when done
 
 All targets are scope-checked before every tool call. Exploit tools require
-your confirmation.
+the dispatcher (destructive-annotated).
 
 ## Verify it works
 

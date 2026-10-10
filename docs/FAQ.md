@@ -58,11 +58,3 @@ lifecycle. `python -m jcyber serve` starts it. Connect any MCP-capable agent.
 | Finding lifecycle | Strict (E->H->F->VF) | Varies | Platform | Manual | Manual |
 | Extensibility | Any MCP client | Plugin system | Closed | Plugin system | Scripts |
 | Open source | MIT | Apache-2.0 | No | No (proxy is proprietary) | Varies |
-
-## Legal note
-
-Jcyber assumes **in-scope targets only**. The scope gate is load-bearing,
-not decorative: deterministic string matching enforced in code as a pre-hook
-on every MCP tool call. Out-of-scope targets are rejected before reaching
-any scanner. Nothing in this repo grants permission to test any system.
-Authorization is the operator's responsibility.

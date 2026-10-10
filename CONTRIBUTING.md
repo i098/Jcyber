@@ -17,7 +17,7 @@ Run everything CI runs, locally - all three must be green:
 ```
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
-uv run pyright
+uv run sentrux check . && uv run pyrefly check jcyber tests
 ```
 
 ## Commit messages: Conventional Commits

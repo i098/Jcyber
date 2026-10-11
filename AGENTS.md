@@ -2,7 +2,7 @@
 
 ## You are the brain
 
-Jcyber gives you 30 MCP tools: scanners, a graph database, evidence
+Jcyber gives you 34 MCP tools: scanners, a graph database, evidence
 management. **You decide what to do with them.** There is
 no predefined workflow, no fixed sequence, no script to follow. You have
 everything a pentester has — recon tools, vulnerability scanners, fuzzers,
@@ -117,7 +117,7 @@ might chain into a critical data breach.
 
 | Path | What |
 |------|------|
-| `jcyber/mcp_server.py` | MCP server, 55 tools |
+| `jcyber/mcp_server.py` | MCP server, 34 tools |
 | `jcyber/SKILL.md` | Pentesting methodology |
 | `jcyber/scope.py` | Scope gate |
 | `jcyber/clients/` | HexStrike, Memgraph, TencentDB, Caido adapters |

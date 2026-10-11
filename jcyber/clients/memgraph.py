@@ -332,18 +332,23 @@ class MemgraphStore:
             )
         return [{"id": r["id"], "title": r["title"]} for r in rows]
 
-    def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
+    def score_finding(
+        self, engagement_id: str, fid: str, severity: int, justification: str = ""
+    ) -> None:
         sev_map = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
         label = sev_map.get(severity, "unknown")
         status = "validated" if severity >= 3 else "provisional"
         with self._driver.session() as s:
             s.run(
                 "MATCH (f:Finding {engagement_id: $eid, id: $fid}) "
-                "SET f.severity=$sev, f.status=$status",
+                "SET f.severity=$sev, f.status=$status "
+                "FOREACH (_ IN CASE WHEN $justif = '' THEN [] ELSE [1] END | "
+                "SET f.justification=$justif)",
                 eid=engagement_id,
                 fid=fid,
                 sev=label,
                 status=status,
+                justif=justification,
             )
 
     def unscored_findings(self, engagement_id: str) -> list[str]:

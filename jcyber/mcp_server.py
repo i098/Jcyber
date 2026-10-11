@@ -795,7 +795,7 @@ def score_finding(
     sev_int = sev_map.get(severity.lower())
     if sev_int is None:
         raise ToolError(f"severity must be one of {list(sev_map)}")
-    graph.score_finding(_state.engagement_id, finding_id, sev_int)
+    graph.score_finding(_state.engagement_id, finding_id, sev_int, justification)
     return json.dumps(
         {
             "finding_id": finding_id,
@@ -985,6 +985,8 @@ def record_retest(finding_id: str, verdict: str, summary: str) -> str:
     if not summary.strip():
         raise ToolError("summary must not be empty")
     graph = _require_graph()
+    if graph.retest_context(_state.engagement_id, finding_id) is None:
+        raise ToolError(f"no finding {finding_id!r} in this engagement")
     graph.record_retest(_state.engagement_id, finding_id, verdict, summary.strip())
     return json.dumps(
         {"finding_id": finding_id, "verdict": verdict, "summary": summary.strip()},

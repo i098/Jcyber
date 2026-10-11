@@ -1,6 +1,6 @@
 # Jcyber
 
-[![CI](https://github.com/i098/Jcyber/actions/workflows/ci.yml/badge.svg)](https://github.com/i098/Jcyber/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/i098/Jcyber/ci.yml?branch=main&style=flat-square&logo=github&label=ci)](https://github.com/i098/Jcyber/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square&logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg?style=flat-square)](https://docs.astral.sh/ruff/)

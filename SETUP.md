@@ -36,6 +36,18 @@ curl http://127.0.0.1:8899/health    # HexStrike -> 200
 uv run python -m jcyber.clients.memgraph --smoke   # Memgraph -> ok
 ```
 
+**Memory-core** (long-term memory — optional but recommended; this is what
+lets the agent learn from past engagements):
+```
+uv run python deploy/memory_core.py          # port 8130, db /tmp/jcyber_memory.db
+uv run python deploy/memory_core.py 8130 ~/.jcyber_memory.db   # persistent db
+```
+Then set `JCYBER_MEMORY_URL=http://127.0.0.1:8130` in `.env`. At intake the
+agent recalls prior lessons for the target; at `commit_learnings` it writes
+validated findings back. Atoms accumulate across engagements and recall is
+cross-engagement (matched on target host + scope description).
+Without it, recall/commit return `no_memory` and every run starts cold.
+
 ## Step 3: Set up secrets
 
 Create `.env` in the Jcyber directory (gitignored):

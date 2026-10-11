@@ -910,8 +910,8 @@ def commit_learnings() -> str:
     if _state.memory is None:
         return json.dumps({"status": "no_memory", "message": "Long-term memory not configured."})
     graph = _require_graph()
-    projection = graph.project_state(_state.engagement_id)
-    atoms = distill(projection)
+    report = graph.report_data(_state.engagement_id)
+    atoms = distill(_state.engagement_id, report)
     _state.memory.commit(_state.engagement_id, atoms)
     return json.dumps({"status": "committed", "atoms": atoms}, indent=2)
 

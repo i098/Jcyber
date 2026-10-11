@@ -90,7 +90,7 @@ through MCP tool calls.
 |----------|---------|---------|
 | `HEXSTRIKE_URL` | `http://127.0.0.1:8899` | HexStrike REST endpoint |
 | `MEMGRAPH_URI` | `bolt://127.0.0.1:7687` | Memgraph Bolt endpoint |
-| `JCYBER_MEMORY_URL` | (none) | TencentDB memory-core endpoint |
+| `JCYBER_MEMORY_URL` | (none) | memory-core endpoint (`uv run python deploy/memory_core.py`, default `http://127.0.0.1:8130`); unset = no long-term memory |
 | `JCYBER_ENGAGEMENTS` | `./engagements` | Base dir for engagement data |
 | `CAIDO_PROXY` | `127.0.0.1:8889` | Caido proxy listener (TCP health-checked) |
 | `CAIDO_API_URL` | `http://127.0.0.1:8080` | Caido instance GraphQL API |

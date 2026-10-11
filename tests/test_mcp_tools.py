@@ -216,6 +216,22 @@ def test_get_state_includes_coverage():
     assert result["coverage"]["in_scope_count"] == 1
     assert result["coverage"]["covered"] == ["example.com"]
     assert result["coverage"]["uncovered"] == []
+    assert result["assets"] == []
+
+
+def test_execute_capture_builds_asset_chain():
+    """Every scan derives host/service/endpoint assets and links evidence to
+    the leaf — the endpoint-level coverage the planner gap-fills on."""
+    hands = FakeHands()
+    graph = FakeGraph()
+    _wire_fakes(hands=hands, graph=graph)
+    _set_scope()
+    result = _mod._execute_capture("scan_essential", "https://example.com:8443/admin", {})
+    assert result["status"] == "success"
+    values = [a["value"] for a in graph.asset_coverage("test-eng")]
+    assert values == ["example.com", "example.com:8443", "example.com:8443/admin"]
+    leaf = graph.asset_coverage("test-eng")[-1]
+    assert leaf["evidence_count"] == 1
 
 
 def test_render_findings_report():

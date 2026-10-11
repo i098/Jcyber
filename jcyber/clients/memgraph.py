@@ -11,6 +11,7 @@ import sys
 
 from neo4j import Driver, GraphDatabase
 
+from jcyber.assets import Asset
 from jcyber.types import JSON, Evidence
 
 
@@ -198,6 +199,53 @@ class MemgraphStore:
                 eid=engagement_id,
             ).single()
         return [str(t) for t in rec["targets"]] if rec else []
+
+    def upsert_assets(self, engagement_id: str, assets: list[Asset]) -> None:
+        """MERGE asset nodes and PARENT edges (program-computed hierarchy).
+        Idempotent; values are the identity, so re-derivation is free."""
+        if not assets:
+            return
+        with self._driver.session() as s:
+            for a in assets:
+                s.run(
+                    "MERGE (x:Asset {engagement_id: $eid, value: $value}) "
+                    "SET x.kind=$kind "
+                    "WITH x "
+                    "OPTIONAL MATCH (p:Asset {engagement_id: $eid, value: $parent}) "
+                    "FOREACH (_ IN CASE WHEN $parent IS NULL THEN [] ELSE [1] END | "
+                    "MERGE (p)-[:PARENT]->(x))",
+                    eid=engagement_id,
+                    value=a.value,
+                    kind=a.kind,
+                    parent=a.parent,
+                )
+
+    def asset_coverage(self, engagement_id: str) -> list[JSON]:
+        """Per-asset evidence counts — the endpoint-level coverage view."""
+        cypher = (
+            "MATCH (a:Asset {engagement_id: $eid}) "
+            "OPTIONAL MATCH (e:Evidence {engagement_id: $eid})-[:AGAINST]->(a) "
+            "RETURN a.kind AS kind, a.value AS value, count(e) AS evidence_count "
+            "ORDER BY a.value"
+        )
+        with self._driver.session() as s:
+            rows = list(s.run(cypher, eid=engagement_id))
+        return [
+            {"kind": r["kind"], "value": r["value"], "evidence_count": int(r["evidence_count"])}
+            for r in rows
+        ]
+
+    def link_evidence(self, engagement_id: str, evidence_id: str, asset_value: str) -> None:
+        """Attach an evidence node to the asset it tested (leaf of the chain)."""
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (e:Evidence {engagement_id: $eid, id: $vid}) "
+                "MATCH (a:Asset {engagement_id: $eid, value: $value}) "
+                "MERGE (e)-[:AGAINST]->(a)",
+                eid=engagement_id,
+                vid=evidence_id,
+                value=asset_value,
+            )
 
     def apply_verdict(
         self, engagement_id: str, hypothesis_id: str, verdict: str, support: float

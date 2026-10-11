@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from jcyber.types import JSON, Evidence
 
@@ -28,6 +29,7 @@ class FakeGraph:
         self._seen: set[str] = set()
         self.report: JSON = report if report is not None else {"engagement": "", "findings": []}
         self.chains: list[dict[str, JSON]] = []
+        self.assets: dict[str, dict[str, Any]] = {}
         self.findings: list[dict[str, JSON]] = []
 
     def project_state(self, engagement_id: str) -> JSON:
@@ -48,6 +50,20 @@ class FakeGraph:
 
     def evidence_targets(self, engagement_id: str) -> list[str]:
         return [ev.target for ev in self.evidence]
+
+    def upsert_assets(self, engagement_id: str, assets: list) -> None:
+        for a in assets:
+            self.assets[a.value] = {"kind": a.kind, "parent": a.parent, "evidence": 0}
+
+    def link_evidence(self, engagement_id: str, evidence_id: str, asset_value: str) -> None:
+        if asset_value in self.assets:
+            self.assets[asset_value]["evidence"] += 1
+
+    def asset_coverage(self, engagement_id: str) -> list[dict[str, Any]]:
+        return [
+            {"kind": v["kind"], "value": k, "evidence_count": v["evidence"]}
+            for k, v in sorted(self.assets.items())
+        ]
 
     def seen_sha256(self, engagement_id: str, sha256: str) -> bool:
         return sha256 in self._seen

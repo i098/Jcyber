@@ -20,6 +20,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
+from .assets import derive_assets
 from .clients.caido import CaidoProxy
 from .clients.hexstrike import HEXSTRIKE_CATEGORIES, HexStrikeHands
 from .clients.memgraph import MemgraphStore
@@ -268,6 +269,7 @@ def get_state() -> str:
         # Coverage: the planner's 'what is untested' signal (ARTEX-style).
         targets = graph.evidence_targets(_state.engagement_id)
         state["coverage"] = coverage(_state.scope, targets)
+        state["assets"] = graph.asset_coverage(_state.engagement_id)
     return json.dumps(state, indent=2)
 
 
@@ -387,8 +389,12 @@ def _execute_capture(tool_name: str, target: str, extra: dict[str, Any]) -> dict
     ev = normalize(_state.engagement_id, tool_name, target, raw, ev_id)
 
     # Insert into graph if connected and not a duplicate
+    assets = derive_assets(target)
     if _state.graph is not None and not _state.graph.seen_sha256(_state.engagement_id, ev.sha256):
         _state.graph.insert_evidence(ev)
+        _state.graph.upsert_assets(_state.engagement_id, assets)
+        if assets:
+            _state.graph.link_evidence(_state.engagement_id, ev_id, assets[-1].value)
 
     result: dict[str, Any] = {
         "status": "success",

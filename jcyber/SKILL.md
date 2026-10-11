@@ -85,11 +85,20 @@ link in the chain. A medium-severity SSRF that reads AWS metadata becomes
 critical when it leaks IAM credentials.
 
 **Chain discipline (stepwise dispatch):** record a multi-step chain ONCE with
-`create_attack_chain`, then execute it stepwise. Only run the next step when
-the prerequisite step's finding/fact exists in the graph — verify with
-`get_state` before each hop. Never fire a chain's steps in parallel: a chain
-like injection → credentials → lateral → privesc depends on each hop's output.
+`create_attack_chain` (steps must already exist in the graph — the tool
+rejects ghosts), then execute it stepwise. Call `next_chain_step(chain_id)`
+before every hop: it returns the frontier step and its state. Only run the
+frontier step; never work past it. Chain steps are dispatched one at a time
+exactly because each hop's output is the next hop's input.
 If a step's prerequisite is missing, the step is blocked, not skipped.
+
+**Re-verification (retest):** before claiming a finding still holds on a
+re-engagement, call `retest_finding(F-###)` — it bundles the finding with
+every piece of evidence that proved it. Replay the MINIMUM that demonstrates
+the original behavior, then `record_retest` with verdict `reproduced`,
+`fixed`, or `inconclusive`. One failed request does NOT prove fixed; one
+successful replay does not prove reproduced — the verdict taxonomy exists
+so reports never over-claim.
 
 ### 6. Hunt Zero-Days (What has nobody found yet?)
 After exhausting known templates:

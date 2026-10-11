@@ -31,6 +31,9 @@ class FakeGraph:
         self.chains: list[dict[str, JSON]] = []
         self.assets: dict[str, dict[str, Any]] = {}
         self.findings: list[dict[str, JSON]] = []
+        self.hypothesis_ids: set[str] = set()
+        self.validated: set[str] = set()
+        self.retests: list[tuple[str, str, str]] = []
 
     def project_state(self, engagement_id: str) -> JSON:
         return self.projection
@@ -74,7 +77,7 @@ class FakeGraph:
         self.verdicts.append((hypothesis_id, verdict, support))
 
     def create_hypothesis(self, engagement_id: str, hid: str, text: str, evidence_id: str) -> None:
-        pass
+        self.hypothesis_ids.add(hid)
 
     def create_finding(
         self,
@@ -97,7 +100,7 @@ class FakeGraph:
         ][:6]
 
     def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
-        pass
+        self.validated.add(fid)
 
     def create_attack_chain(
         self, engagement_id: str, ac_id: str, title: str, impact: str, step_ids: list[str]
@@ -114,6 +117,53 @@ class FakeGraph:
 
     def attack_chain_count(self, engagement_id: str) -> int:
         return len(self.chains)
+
+    def missing_steps(self, engagement_id: str, step_ids: list[str]) -> list[str]:
+        known = {f["id"] for f in self.findings} | self.hypothesis_ids
+        return [s for s in step_ids if s not in known]
+
+    def chain_frontier(self, engagement_id: str, ac_id: str) -> JSON | None:
+        chains: list[dict[str, Any]] = self.chains
+        chain = next((c for c in chains if c["id"] == ac_id), None)
+        if chain is None:
+            return None
+        for sid in chain["steps"]:
+            if sid not in self.validated:
+                return {
+                    "chain_id": ac_id,
+                    "next_step": sid,
+                    "state": "frontier",
+                    "message": f"dispatch {sid}",
+                }
+        return {
+            "chain_id": ac_id,
+            "next_step": None,
+            "state": "complete",
+            "message": "all steps met",
+        }
+
+    def retest_context(self, engagement_id: str, finding_id: str) -> JSON | None:
+        f = next((f for f in self.findings if f["id"] == finding_id), None)
+        if f is None:
+            return None
+        return {
+            "id": finding_id,
+            "title": f.get("title"),
+            "severity": f.get("severity"),
+            "justification": f.get("justification"),
+            "evidence": f.get("evidence", []),
+        }
+
+    def record_retest(
+        self, engagement_id: str, finding_id: str, verdict: str, summary: str
+    ) -> None:
+        self.retests.append((finding_id, verdict, summary))
+
+    def evidence_index(self, engagement_id: str) -> list[JSON]:
+        return [
+            {"id": ev.id, "tool": ev.tool, "target": ev.target, "raw_path": ev.raw_path}
+            for ev in self.evidence
+        ]
 
 
 class FakeHands:

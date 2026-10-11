@@ -24,11 +24,15 @@ from jcyber.mcp_server import (
     get_state,
     intake_target,
     mcp,
+    next_chain_step,
     promote_finding,
     recall_lessons,
+    record_retest,
     render_findings_report,
+    retest_finding,
     retire_hypothesis,
     score_finding,
+    search_evidence,
 )
 from jcyber.types import Evidence, Scope, ScopeItem
 from tests.fakes import FakeGraph, FakeHands, FakeMemory
@@ -294,7 +298,10 @@ def test_retire_hypothesis():
 
 
 def test_create_attack_chain_demonstrated():
-    _wire_fakes()
+    graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "sqli", "H-001")
+    graph.create_finding("test-eng", "F-002", "dump", "H-002")
+    _wire_fakes(graph=graph)
     result = json.loads(
         create_attack_chain("Debug param to DB dump", "Full database access", ["F-001", "F-002"])
     )
@@ -304,7 +311,10 @@ def test_create_attack_chain_demonstrated():
 
 
 def test_create_attack_chain_theoretical():
-    _wire_fakes()
+    graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "sqli", "H-001")
+    graph.hypothesis_ids.add("H-002")
+    _wire_fakes(graph=graph)
     result = json.loads(
         create_attack_chain("Possible chain", "Needs validation", ["F-001", "H-002"])
     )
@@ -317,14 +327,174 @@ def test_create_attack_chain_empty_steps():
         create_attack_chain("empty", "none", [])
 
 
+def test_create_attack_chain_rejects_unrepresentable_steps():
+    """ARTEX lineage enforcement: a step referencing no finding/hypothesis
+    node is rejected at create time, never silently dropped."""
+    _wire_fakes()
+    with pytest.raises(ToolError, match=r"F-404.*produce the evidence"):
+        create_attack_chain("Ghost chain", "vaporware", ["F-404"])
+
+
 def test_get_attack_chains_empty():
     _wire_fakes()
     result = json.loads(get_attack_chains())
     assert result == {"chains": []}
 
 
+def test_next_chain_step_frontier():
+    """Frontier = first unscored step; earlier steps being validated gates it."""
+    graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "sqli", "H-001")
+    graph.create_finding("test-eng", "F-002", "dump", "H-002")
+    _wire_fakes(graph=graph)
+    create_attack_chain("Chain", "impact", ["F-001", "F-002"])
+    result = json.loads(next_chain_step("AC-001"))
+    assert result["next_step"] == "F-001"
+    assert result["state"] == "frontier"
+    # score F-001 -> frontier advances to F-002
+    score_finding("F-001", "high", "confirmed")
+    result = json.loads(next_chain_step("AC-001"))
+    assert result["next_step"] == "F-002"
+    # score F-002 -> chain complete
+    score_finding("F-002", "critical", "dumped")
+    result = json.loads(next_chain_step("AC-001"))
+    assert result["state"] == "complete"
+
+
+def test_next_chain_step_unknown_chain():
+    _wire_fakes()
+    with pytest.raises(ToolError, match="no attack chain"):
+        next_chain_step("AC-999")
+
+
+def test_search_evidence_greps_raw_files(tmp_path):
+    """Trace exchange: raw tool output stays greppable even when it never
+    became a hypothesis."""
+    graph = FakeGraph()
+    hit = Evidence(
+        engagement_id="test-eng",
+        id="E-001",
+        tool="katana_crawl",
+        target="https://example.com/",
+        ts="2026-10-11T00:00:00Z",
+        summary="crawl",
+        sha256="a" * 64,
+        raw_path=str(tmp_path / "E-001.txt"),
+    )
+    miss = Evidence(
+        engagement_id="test-eng",
+        id="E-002",
+        tool="nmap_scan",
+        target="https://example.com/",
+        ts="2026-10-11T00:00:01Z",
+        summary="ports",
+        sha256="b" * 64,
+        raw_path=str(tmp_path / "E-002.txt"),
+    )
+    graph.evidence.extend([hit, miss])
+    (tmp_path / "E-001.txt").write_text("found /admin endpoint with debug=1\nnoise")
+    (tmp_path / "E-002.txt").write_text("22/tcp open ssh")
+    _wire_fakes(graph=graph)
+    result = json.loads(search_evidence("admin"))
+    assert result["matches"][0]["evidence_id"] == "E-001"
+    assert "debug=1" in result["matches"][0]["lines"][0]
+    # miss file must not appear
+    assert all(m["evidence_id"] != "E-002" for m in result["matches"])
+
+
+def test_search_evidence_empty_query_rejected():
+    _wire_fakes()
+    with pytest.raises(ToolError, match="must not be empty"):
+        search_evidence("  ")
+
+
+def test_retest_finding_bundles_evidence():
+    """Retest context: finding + evidence chain for targeted re-verification."""
+    graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "IDOR on /api/users", "H-001")
+    graph.findings[0]["evidence"] = [
+        {"id": "E-001", "tool": "http_repeater", "summary": "swapped id"}
+    ]
+    _wire_fakes(graph=graph)
+    result = json.loads(retest_finding("F-001"))
+    assert result["id"] == "F-001"
+    assert result["evidence"][0]["id"] == "E-001"
+
+
+def test_retest_finding_unknown():
+    _wire_fakes()
+    with pytest.raises(ToolError, match="no finding"):
+        retest_finding("F-999")
+
+
+def test_record_retest_verdicts():
+    graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "IDOR", "H-001")
+    _wire_fakes(graph=graph)
+    result = json.loads(record_retest("F-001", "reproduced", "same 200 body with swapped id"))
+    assert result["verdict"] == "reproduced"
+    assert graph.retests == [("F-001", "reproduced", "same 200 body with swapped id")]
+
+
+def test_record_retest_rejects_bad_verdict():
+    _wire_fakes()
+    with pytest.raises(ToolError, match="verdict must be one of"):
+        record_retest("F-001", "probably", "vibes")
+
+
+def test_get_state_terminal_hint_when_exhausted():
+    """Computed terminal reasoning: full coverage + nothing open = exhausted
+    signal (a planning input, not a stop)."""
+    graph = FakeGraph(
+        projection={
+            "phase": "reporting",
+            "open_hypotheses": [],
+            "validated_findings": ["F-001"],
+            "recent_evidence": [],
+            "tools_run": [],
+            "unscored_findings": [],
+            "attack_chains": [],
+        }
+    )
+    graph.evidence.append(
+        Evidence(
+            engagement_id="test-eng",
+            id="E-001",
+            tool="httpx_probe",
+            target="https://example.com/",
+            ts="2026-10-11T00:00:00Z",
+            summary="alive",
+            sha256="c" * 64,
+            raw_path="/tmp/e1.txt",
+        )
+    )
+    _wire_fakes(graph=graph)
+    _set_scope()
+    result = json.loads(get_state())
+    assert "exhausted" in result["terminal_hint"]
+
+
+def test_get_state_no_terminal_hint_while_open():
+    graph = FakeGraph(
+        projection={
+            "phase": "probing",
+            "open_hypotheses": ["H-001"],
+            "validated_findings": [],
+            "recent_evidence": [],
+            "tools_run": [],
+            "unscored_findings": [],
+            "attack_chains": [],
+        }
+    )
+    _wire_fakes(graph=graph)
+    _set_scope()
+    result = json.loads(get_state())
+    assert "terminal_hint" not in result
+
+
 def test_get_attack_chains_with_data():
     graph = FakeGraph()
+    graph.create_finding("test-eng", "F-001", "sqli", "H-001")
     _wire_fakes(graph=graph)
     create_attack_chain("Chain A", "Impact A", ["F-001"])
     result = json.loads(get_attack_chains())

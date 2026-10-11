@@ -270,6 +270,19 @@ def get_state() -> str:
         targets = graph.evidence_targets(_state.engagement_id)
         state["coverage"] = coverage(_state.scope, targets)
         state["assets"] = graph.asset_coverage(_state.engagement_id)
+        # Terminal reasoning, computed not vibes: exhausted is a planning
+        # signal (change direction or close), never a stop by itself.
+        cov = state["coverage"]
+        if (
+            not cov.get("uncovered")
+            and not state.get("open_hypotheses")
+            and not state.get("unscored_findings")
+        ):
+            state["terminal_hint"] = (
+                "exhausted: in-scope surface covered, no open hypotheses, "
+                "no unscored findings — pick a new direction or close the "
+                "engagement (render_findings_report)"
+            )
     return json.dumps(state, indent=2)
 
 
@@ -836,6 +849,13 @@ def create_attack_chain(
     if not step_ids:
         raise ToolError("Attack chain requires at least one step id")
     graph = _require_graph()
+    missing = graph.missing_steps(_state.engagement_id, step_ids)
+    if missing:
+        # ARTEX lineage enforcement: an illegal step is unrepresentable.
+        raise ToolError(
+            f"steps {missing} reference no finding/hypothesis in the graph — "
+            "produce the evidence and record them first, then create the chain"
+        )
     ac_id = _state.next_chain_id()
     status = graph.create_attack_chain(_state.engagement_id, ac_id, title, impact, step_ids)
     return json.dumps(
@@ -863,6 +883,113 @@ def get_attack_chains() -> str:
     graph = _require_graph()
     chains = graph.get_attack_chains(_state.engagement_id)
     return json.dumps(chains, indent=2) if chains else '{"chains": []}'
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
+def next_chain_step(chain_id: str) -> str:
+    """Return the next dispatchable step of an attack chain. ARTEX lineage
+    rule in code: a step is met only when its finding exists AND is scored;
+    never work past the frontier. Call before executing any chain hop."""
+    graph = _require_graph()
+    frontier = graph.chain_frontier(_state.engagement_id, chain_id)
+    if frontier is None:
+        raise ToolError(f"no attack chain {chain_id!r} in this engagement")
+    return json.dumps(frontier, indent=2)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
+def search_evidence(query: str, limit: int = 20) -> str:
+    """Grep every captured evidence raw file for a keyword (case-insensitive
+    substring) and return matching evidence with the matching lines. ARTEX
+    trace-exchange: nothing a tool saw is ever lost, even if it never became
+    a hypothesis. Use before re-testing or when a hint references old output."""
+    if not query.strip():
+        raise ToolError("query must not be empty")
+    graph = _require_graph()
+    needle = query.lower()
+    matches: list[dict[str, Any]] = []
+    for ev in graph.evidence_index(_state.engagement_id):
+        path = str(ev.get("raw_path") or "")
+        try:
+            with open(path, errors="replace") as f:
+                content = f.read()
+        except OSError:
+            continue
+        hits = [line.strip()[:200] for line in content.splitlines() if needle in line.lower()]
+        if not hits:
+            continue
+        matches.append(
+            {
+                "evidence_id": ev["id"],
+                "tool": ev["tool"],
+                "target": ev["target"],
+                "match_count": len(hits),
+                "lines": hits[:3],
+                "raw_path": path,
+            }
+        )
+        if len(matches) >= max(1, limit):
+            break
+    return json.dumps({"query": query, "matches": matches}, indent=2)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
+def retest_finding(finding_id: str) -> str:
+    """Bundle a finding with its full supporting evidence chain for targeted
+    re-verification. Protocol: replay the MINIMUM that proves the original
+    behavior, then record_retest with verdict reproduced | fixed |
+    inconclusive. One failed request does NOT prove fixed."""
+    graph = _require_graph()
+    ctx = graph.retest_context(_state.engagement_id, finding_id)
+    if ctx is None:
+        raise ToolError(f"no finding {finding_id!r} in this engagement")
+    return json.dumps(ctx, indent=2)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
+)
+def record_retest(finding_id: str, verdict: str, summary: str) -> str:
+    """Record a re-verification verdict for a finding. verdict must be one
+    of: reproduced, fixed, inconclusive. summary: the one-line observation
+    that justifies the verdict."""
+    verdicts = {"reproduced", "fixed", "inconclusive"}
+    if verdict not in verdicts:
+        raise ToolError(f"verdict must be one of {sorted(verdicts)}")
+    if not summary.strip():
+        raise ToolError("summary must not be empty")
+    graph = _require_graph()
+    graph.record_retest(_state.engagement_id, finding_id, verdict, summary.strip())
+    return json.dumps(
+        {"finding_id": finding_id, "verdict": verdict, "summary": summary.strip()},
+        indent=2,
+    )
 
 
 # ---------------------------------------------------------------------------

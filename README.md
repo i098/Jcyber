@@ -42,11 +42,11 @@ evidence is normalized into the engagement graph.
 | TencentDB | Long-term memory - cross-engagement recall and learning |
 | Caido | Traffic substrate - proxy, request logging, passive plugins |
 
-## MCP tools (30 total)
+## MCP tools (34 total)
 
 - **12 category dispatchers** - `scan_essential`, `scan_web_security`, `scan_osint`, ... covering all 90 routed HexStrike tools (`nmap`, `nuclei`, `subfinder`, `ffuf`, ...). Each call scope-gated; member list ships in each dispatcher's description, so tools/list stays small.
-- **Verification tools (6)** - `confirm_difference` (3-gate: baseline vs attack, mechanical diff), `http_repeater`, `browser_agent_inspect`, `api_fuzzer`, `graphql_scanner`, `comprehensive_api_audit`
-- **Graph tools (6)** - `create_hypothesis`, `promote_finding` (endpoint-aware duplicate triage), `score_finding`, `retire_hypothesis`, `create_attack_chain`, `get_attack_chains`
+- **Verification tools (9)** - `confirm_difference` (3-gate: baseline vs attack, mechanical diff), `http_repeater`, `browser_agent_inspect`, `api_fuzzer`, `graphql_scanner`, `comprehensive_api_audit`, `search_evidence` (grep every raw tool output), `retest_finding` + `record_retest` (re-verification verdicts)
+- **Graph tools (7)** - `create_hypothesis`, `promote_finding` (endpoint-aware duplicate triage), `score_finding`, `retire_hypothesis`, `create_attack_chain` (steps must exist — lineage enforced), `get_attack_chains`, `next_chain_step` (ARTEX-style frontier: never work past an unmet step)
 - **Engagement tools (4)** - `intake_target`, `get_state`, `render_findings_report`, `get_decision_trace`
 - **Memory tools (2)** - `recall_lessons`, `commit_learnings`
 
@@ -142,7 +142,7 @@ python -m jcyber trace <dir>        # render decision trace
 
 ```
 jcyber/
-  mcp_server.py        MCP server with all 30 tools
+  mcp_server.py        MCP server with all 34 tools
   SKILL.md             Agent methodology (the pentesting ladder)
   scope.py             Deterministic scope gate
   normalize.py         Evidence normalization (sha256, summary)

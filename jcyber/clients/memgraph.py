@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any
 
 from neo4j import Driver, GraphDatabase
 
@@ -199,6 +200,23 @@ class MemgraphStore:
                 eid=engagement_id,
             ).single()
         return [str(t) for t in rec["targets"]] if rec else []
+
+    def evidence_index(self, engagement_id: str) -> list[dict[str, Any]]:
+        """Id/tool/target/raw_path for every evidence row -- feeds
+        search_evidence's file grep."""
+        with self._driver.session() as s:
+            rows = list(
+                s.run(
+                    "MATCH (e:Evidence {engagement_id: $eid}) "
+                    "RETURN e.id AS id, e.tool AS tool, e.target AS target, "
+                    "e.raw_path AS raw_path ORDER BY e.id",
+                    eid=engagement_id,
+                )
+            )
+        return [
+            {"id": r["id"], "tool": r["tool"], "target": r["target"], "raw_path": r["raw_path"]}
+            for r in rows
+        ]
 
     def upsert_assets(self, engagement_id: str, assets: list[Asset]) -> None:
         """MERGE asset nodes and PARENT edges (program-computed hierarchy).
@@ -426,6 +444,113 @@ class MemgraphStore:
                 eid=engagement_id,
             ).single()
         return int(rec["n"]) if rec else 0
+
+    def missing_steps(self, engagement_id: str, step_ids: list[str]) -> list[str]:
+        """Step ids that reference no Finding/Hypothesis node — ARTEX lineage
+        enforcement: a chain step that doesn't exist yet must be rejected at
+        create time, not silently dropped by the STEP-edge match."""
+        if not step_ids:
+            return []
+        with self._driver.session() as s:
+            rec = s.run(
+                "UNWIND $ids AS sid "
+                "OPTIONAL MATCH (f:Finding {engagement_id: $eid, id: sid}) "
+                "OPTIONAL MATCH (h:Hypothesis {engagement_id: $eid, id: sid}) "
+                "WITH sid, coalesce(f, h) AS node "
+                "WHERE node IS NULL RETURN collect(sid) AS missing",
+                eid=engagement_id,
+                ids=step_ids,
+            ).single()
+        return list(rec["missing"]) if rec and rec["missing"] else []
+
+    def chain_frontier(self, engagement_id: str, ac_id: str) -> JSON | None:
+        """The next dispatchable chain step, ARTEX-style: a step is MET when
+        its finding exists AND is validated (scored). The frontier is the
+        first non-met step — dispatching anything past it skips lineage."""
+        chains: list[dict[str, Any]] = self.get_attack_chains(engagement_id)  # type: ignore[assignment]
+        chain = next((c for c in chains if c["id"] == ac_id), None)
+        if chain is None:
+            return None
+        with self._driver.session() as s:
+            rows = list(
+                s.run(
+                    "UNWIND $ids AS sid "
+                    "OPTIONAL MATCH (f:Finding {engagement_id: $eid, id: sid}) "
+                    "OPTIONAL MATCH (h:Hypothesis {engagement_id: $eid, id: sid}) "
+                    "RETURN sid, coalesce(f, h) AS node, "
+                    "f.severity AS severity, labels(coalesce(f, h))[0] AS label",
+                    eid=engagement_id,
+                    ids=[st["id"] for st in chain["steps"]],
+                )
+            )
+        state = {r["sid"]: (r["node"], r["severity"], r["label"]) for r in rows}
+        for st in chain["steps"]:
+            node, severity, label = state.get(st["id"], (None, None, None))
+            if node is None:
+                return {
+                    "chain_id": ac_id,
+                    "next_step": st["id"],
+                    "state": "gap",
+                    "message": (
+                        f"step {st['id']} has no finding/hypothesis node — "
+                        "produce evidence and record it first"
+                    ),
+                }
+            if label == "Finding" and severity is not None:
+                continue  # met
+            state_word = "unvalidated finding" if label == "Finding" else "hypothesis"
+            return {
+                "chain_id": ac_id,
+                "next_step": st["id"],
+                "state": "frontier",
+                "message": (
+                    f"dispatch {st['id']} ({state_word}) — every earlier step "
+                    "is met; do not work past it"
+                ),
+            }
+        return {
+            "chain_id": ac_id,
+            "next_step": None,
+            "state": "complete",
+            "message": "all steps met",
+        }
+
+    def retest_context(self, engagement_id: str, finding_id: str) -> JSON | None:
+        """Finding + its supporting evidence chain, for targeted re-verification."""
+        cypher = (
+            "MATCH (f:Finding {engagement_id: $eid, id: $fid}) "
+            "OPTIONAL MATCH (h:Hypothesis)-[:DERIVES]->(f) "
+            "OPTIONAL MATCH (h)-[:SUPPORTED_BY]->(e:Evidence) "
+            "RETURN f.id AS id, f.title AS title, f.severity AS severity, "
+            "f.justification AS justification, "
+            "collect(DISTINCT {id: e.id, tool: e.tool, summary: e.summary, "
+            "raw_path: e.raw_path}) AS evidence"
+        )
+        with self._driver.session() as s:
+            rec = s.run(cypher, eid=engagement_id, fid=finding_id).single()
+        if rec is None or rec["id"] is None:
+            return None
+        return {
+            "id": rec["id"],
+            "title": rec["title"],
+            "severity": rec["severity"],
+            "justification": rec["justification"],
+            "evidence": [e for e in rec["evidence"] if e.get("id") is not None],
+        }
+
+    def record_retest(
+        self, engagement_id: str, finding_id: str, verdict: str, summary: str
+    ) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (f:Finding {engagement_id: $eid, id: $fid}) "
+                "SET f.retest_verdict=$verdict, f.retest_summary=$summary, "
+                "f.retest_at=datetime()",
+                eid=engagement_id,
+                fid=finding_id,
+                verdict=verdict,
+                summary=summary,
+            )
 
 
 def _main() -> int:

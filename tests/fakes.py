@@ -99,8 +99,15 @@ class FakeGraph:
             if f["dedup_key"] == dedup_key
         ][:6]
 
-    def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
+    def score_finding(
+        self, engagement_id: str, fid: str, severity: int, justification: str = ""
+    ) -> None:
         self.validated.add(fid)
+        for f in self.findings:
+            if f["id"] == fid:
+                f["severity"] = severity
+                if justification:
+                    f["justification"] = justification
 
     def create_attack_chain(
         self, engagement_id: str, ac_id: str, title: str, impact: str, step_ids: list[str]

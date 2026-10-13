@@ -23,12 +23,16 @@ uv sync
 docker compose -f deploy/docker-compose.memgraph.yml up -d
 ```
 
-**HexStrike** (scanning tools):
+**HexStrike** (scanning tools) — recommended: run it in the Kali container
+(Linux toolchain covers ~all registry tools; the macOS host build caps out at
+~73/80 because several tools won't build on Apple Silicon):
 ```
-cd /path/to/hexstrike-ai
-pip install -r requirements.txt
-python hexstrike_server.py
+git clone --depth 1 https://github.com/0x4m4/hexstrike-ai /tmp/hexstrike
+docker build -f deploy/hexstrike.Dockerfile -t hexstrike:full /tmp/hexstrike
+docker run -d --name hexstrike -p 8899:8888 hexstrike:full
 ```
+(Host-process install also works — `pip install -r requirements.txt` +
+`python hexstrike_server.py` — but ~7 tools are macOS-hostile.)
 
 Verify both are up:
 ```
